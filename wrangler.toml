@@ -1,0 +1,9 @@
+name = "shinkemi-pay-slack"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+SPREADSHEET_ID = "1Rmf1TmZqQt_fSEGnUt2sOxMdfzxCM7iNVcfHA1kq358"
+
+# Google Service Account credentials should be set as secrets
+# wrangler secret put GOOGLE_SERVICE_ACCOUNT_KEY
