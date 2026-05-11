@@ -4,6 +4,7 @@ import { CommandHandler } from './commands';
 import { verifySlackRequest } from './slack-verification';
 import { ApiHandler, unauthorizedResponse } from './api';
 import { OPENAPI_YAML } from './openapi';
+import { PRIVACY_POLICY_HTML } from './privacy';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -13,6 +14,13 @@ export default {
       return new Response(OPENAPI_YAML, {
         status: 200,
         headers: { 'Content-Type': 'application/yaml; charset=utf-8' }
+      });
+    }
+
+    if ((url.pathname === '/privacy' || url.pathname === '/privacy-policy') && request.method === 'GET') {
+      return new Response(PRIVACY_POLICY_HTML, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
       });
     }
 
