@@ -10,3 +10,4 @@ SPREADSHEET_ID = "1Rmf1TmZqQt_fSEGnUt2sOxMdfzxCM7iNVcfHA1kq358"
 # wrangler secret put GOOGLE_SERVICE_ACCOUNT_KEY
 # wrangler secret put CHATGPT_ACTION_API_KEY_TSUCHIDA
 # wrangler secret put CHATGPT_ACTION_API_KEY_KATO
+# wrangler secret put SLACK_WEBHOOK_URL

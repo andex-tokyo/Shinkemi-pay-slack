@@ -1,4 +1,5 @@
 import { SheetsService } from './sheets';
+import { SlackNotifier } from './slack-notifier';
 import { ApiPaymentRequest, Env, PaymentEntry, Payer } from './types';
 
 const API_HEADERS = {
@@ -69,11 +70,15 @@ function validateEntryRequest(body: ApiPaymentRequest | null, payer: Payer, fixe
 
 export class ApiHandler {
   private sheets: SheetsService;
+  private slack: SlackNotifier;
   private payer: Payer;
+  private ctx: ExecutionContext;
 
-  constructor(env: Env, payer: Payer) {
+  constructor(env: Env, payer: Payer, ctx: ExecutionContext) {
     this.sheets = new SheetsService(env.SPREADSHEET_ID, env.GOOGLE_SERVICE_ACCOUNT_KEY);
+    this.slack = new SlackNotifier(env.SLACK_WEBHOOK_URL);
     this.payer = payer;
+    this.ctx = ctx;
   }
 
   static getAuthenticatedPayer(request: Request, env: Env): Payer | null {
@@ -131,6 +136,8 @@ export class ApiHandler {
     }
 
     await this.sheets.addEntry(entryOrError);
+    this.notifySlack(this.slack.notifyEntryAdded(entryOrError));
+
     return jsonResponse({
       ok: true,
       message,
@@ -154,10 +161,13 @@ export class ApiHandler {
     }
 
     const deletedEntry = await this.sheets.deleteEntry(rowNumber);
+    const formattedDeletedEntry = this.slack.formatDeletedEntry(deletedEntry);
+    this.notifySlack(this.slack.notifyEntryDeleted(rowNumber, formattedDeletedEntry));
+
     return jsonResponse({
       ok: true,
       message: `行番号 ${rowNumber} の項目を削除しました`,
-      deletedEntry: deletedEntry.length > 0 ? parseSheetEntry(deletedEntry) : null
+      deletedEntry: formattedDeletedEntry
     });
   }
 
@@ -172,6 +182,14 @@ export class ApiHandler {
       ok: true,
       amounts
     });
+  }
+
+  private notifySlack(notification: Promise<void>): void {
+    this.ctx.waitUntil(
+      notification.catch(error => {
+        console.error('Slack notification error:', error);
+      })
+    );
   }
 }
 

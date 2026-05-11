@@ -22,7 +22,7 @@ export default {
         return unauthorizedResponse();
       }
 
-      const api = new ApiHandler(env, payer);
+      const api = new ApiHandler(env, payer, ctx);
       return api.handle(request);
     }
 

@@ -24,6 +24,7 @@ export interface Env {
   CHATGPT_ACTION_API_KEY?: string;
   CHATGPT_ACTION_API_KEY_TSUCHIDA?: string;
   CHATGPT_ACTION_API_KEY_KATO?: string;
+  SLACK_WEBHOOK_URL?: string;
 }
 
 export type Payer = '土田' | '加藤';
