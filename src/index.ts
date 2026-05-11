@@ -2,9 +2,29 @@ import { Env, SlackRequestBody, SlackResponse } from './types';
 import { SheetsService } from './sheets';
 import { CommandHandler } from './commands';
 import { verifySlackRequest } from './slack-verification';
+import { ApiHandler, unauthorizedResponse } from './api';
+import { OPENAPI_YAML } from './openapi';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/openapi.yaml' && request.method === 'GET') {
+      return new Response(OPENAPI_YAML, {
+        status: 200,
+        headers: { 'Content-Type': 'application/yaml; charset=utf-8' }
+      });
+    }
+
+    if (url.pathname.startsWith('/api/')) {
+      if (!ApiHandler.isAuthorized(request, env)) {
+        return unauthorizedResponse();
+      }
+
+      const api = new ApiHandler(env);
+      return api.handle(request);
+    }
+
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }

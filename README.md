@@ -47,13 +47,20 @@ wrangler secret put SLACK_SIGNING_SECRET
 # Slackアプリの設定からSigning Secretをコピーしてペースト
 ```
 
-### 4. ローカル開発
+4. ChatGPT Actions API Keyを設定:
+
+```bash
+wrangler secret put CHATGPT_ACTION_API_KEY
+# GPT BuilderのBearer Tokenに設定する値を入力
+```
+
+### 5. ローカル開発
 
 ```bash
 npm run dev
 ```
 
-### 5. デプロイ
+### 6. デプロイ
 
 ```bash
 npm run deploy
@@ -103,6 +110,58 @@ npm run deploy
 /pay_amount
 ```
 
+## ChatGPT Actions対応
+
+Slack Slash Commandsの既存処理に加えて、ChatGPT Custom GPT Actionsから呼び出せるJSON APIを提供しています。Slack向けの署名検証、即時200 OK、`response_url`への非同期返信、`ctx.waitUntil()`の構成は維持したまま、`/api/*`配下だけBearer Token認証を要求します。
+
+### OpenAPI URL
+
+```text
+https://shinkemi-pay-slack.tsuchida.workers.dev/openapi.yaml
+```
+
+### API認証
+
+ChatGPT Actions APIは以下のヘッダーで認証します。
+
+```http
+Authorization: Bearer <CHATGPT_ACTION_API_KEY>
+```
+
+Cloudflare Workers本番環境では、以下のSecretを設定してください。
+
+```bash
+wrangler secret put CHATGPT_ACTION_API_KEY
+```
+
+本番ではSecretとして管理します。ローカル開発でAPI認証を試す場合は、`.dev.vars`に`CHATGPT_ACTION_API_KEY`を設定してください。
+
+### GPT Builder設定例
+
+1. GPT Builderで「Configure」→「Actions」→「Create new action」を開く
+2. SchemaにOpenAPI URLの内容を貼り付ける、またはURLから読み込む
+3. Authenticationを以下のように設定する
+   - Type: API Key
+   - Auth Type: Bearer
+   - API Key: `CHATGPT_ACTION_API_KEY`の値
+
+### ChatGPT Actions API一覧
+
+| Method | Path | operationId | 説明 |
+| --- | --- | --- | --- |
+| POST | `/api/pay` | `addPayEntry` | 割り勘項目を追加 |
+| POST | `/api/tatekae` | `addTatekaeEntry` | 立替項目を追加 |
+| GET | `/api/list` | `listPayEntries` | 最近10件を取得 |
+| DELETE | `/api/entries/{rowNumber}` | `deletePayEntry` | 指定行を削除 |
+| GET | `/api/amount` | `getUnsettledAmounts` | 未清算金額を取得 |
+
+### 想定利用例
+
+- 「ランチ1200円を土田で割り勘登録して」
+- 「最近の立替一覧を見せて」
+- 「未清算金額を教えて」
+- 「5行目を削除して」
+
 ## スプレッドシートの構成
 
 以下のシートが必要です：
@@ -138,10 +197,13 @@ npm run deploy
 .
 ├── src/
 │   ├── index.ts          # メインエントリーポイント
+│   ├── api.ts            # ChatGPT Actions用JSON API
+│   ├── openapi.ts        # Workersで返却するOpenAPI YAML
 │   ├── types.ts          # TypeScript型定義
 │   ├── sheets.ts         # Google Sheets API連携
 │   ├── commands.ts       # Slackコマンドハンドラー
 │   └── slack-verification.ts # Slackリクエスト検証
+├── openapi.yaml          # ChatGPT Actions用OpenAPI Schema
 ├── wrangler.toml         # Cloudflare Workers設定
 ├── tsconfig.json         # TypeScript設定
 └── package.json          # プロジェクト設定

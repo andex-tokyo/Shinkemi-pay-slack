@@ -21,6 +21,7 @@ export interface Env {
   SPREADSHEET_ID: string;
   GOOGLE_SERVICE_ACCOUNT_KEY: string;
   SLACK_SIGNING_SECRET?: string;
+  CHATGPT_ACTION_API_KEY?: string;
 }
 
 export interface PaymentEntry {
@@ -29,4 +30,11 @@ export interface PaymentEntry {
   payer: string;
   splitBill: boolean;
   amount: number;
+}
+
+export interface ApiPaymentRequest {
+  item?: unknown;
+  amount?: unknown;
+  payer?: unknown;
+  splitBill?: unknown;
 }

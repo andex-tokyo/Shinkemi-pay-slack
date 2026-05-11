@@ -1,0 +1,264 @@
+openapi: 3.1.0
+info:
+  title: Shinkemi Pay API
+  version: 1.0.0
+  description: ChatGPT Actions API for Shinkemi Pay Slack payment entries.
+servers:
+  - url: https://shinkemi-pay-slack.tsuchida.workers.dev
+security:
+  - bearerAuth: []
+paths:
+  /api/pay:
+    post:
+      operationId: addPayEntry
+      summary: Add a split-bill payment entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayRequest'
+      responses:
+        '200':
+          description: Payment entry added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/tatekae:
+    post:
+      operationId: addTatekaeEntry
+      summary: Add a non-split reimbursement entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TatekaeRequest'
+      responses:
+        '200':
+          description: Reimbursement entry added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddEntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/list:
+    get:
+      operationId: listPayEntries
+      summary: List the latest 10 payment entries
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Latest payment entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EntryWithRowNumber'
+                required:
+                  - ok
+                  - entries
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/entries/{rowNumber}:
+    delete:
+      operationId: deletePayEntry
+      summary: Delete a payment entry by spreadsheet row number
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rowNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Payment entry deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  message:
+                    type: string
+                  deletedEntry:
+                    $ref: '#/components/schemas/Entry'
+                required:
+                  - ok
+                  - message
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/amount:
+    get:
+      operationId: getUnsettledAmounts
+      summary: Get unsettled payment amounts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Unsettled amounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  amounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        amount:
+                          type: number
+                      required:
+                        - name
+                        - amount
+                required:
+                  - ok
+                  - amounts
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    PayRequest:
+      type: object
+      properties:
+        item:
+          type: string
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        payer:
+          type: string
+          enum:
+            - 土田
+            - 加藤
+        splitBill:
+          type: boolean
+      required:
+        - item
+        - amount
+        - payer
+        - splitBill
+    TatekaeRequest:
+      type: object
+      properties:
+        item:
+          type: string
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        payer:
+          type: string
+          enum:
+            - 土田
+            - 加藤
+      required:
+        - item
+        - amount
+        - payer
+    Entry:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        item:
+          type: string
+        amount:
+          type: number
+        payer:
+          type: string
+          enum:
+            - 土田
+            - 加藤
+        splitBill:
+          type: boolean
+      required:
+        - date
+        - item
+        - amount
+        - payer
+        - splitBill
+    EntryWithRowNumber:
+      allOf:
+        - $ref: '#/components/schemas/Entry'
+        - type: object
+          properties:
+            rowNumber:
+              type: integer
+          required:
+            - rowNumber
+    AddEntryResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        message:
+          type: string
+        entry:
+          $ref: '#/components/schemas/Entry'
+      required:
+        - ok
+        - message
+        - entry
+    ErrorResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+      required:
+        - ok
+        - error

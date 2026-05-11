@@ -40,11 +40,11 @@ export class GoogleAuth {
       throw new Error(`Failed to get access token: ${await response.text()}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { access_token: string; expires_in: number };
     this.accessToken = data.access_token;
     this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
 
-    return this.accessToken;
+    return data.access_token;
   }
 
   private async createJWT(payload: any): Promise<string> {

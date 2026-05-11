@@ -1,6 +1,19 @@
 import { PaymentEntry } from './types';
 import { GoogleAuth } from './google-auth';
 
+interface ValuesResponse {
+  values?: string[][];
+}
+
+interface SpreadsheetResponse {
+  sheets: Array<{
+    properties: {
+      title: string;
+      sheetId: number;
+    };
+  }>;
+}
+
 export class SheetsService {
   private spreadsheetId: string;
   private auth: GoogleAuth;
@@ -59,7 +72,7 @@ export class SheetsService {
       throw new Error(`Failed to get entries: ${await response.text()}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as ValuesResponse;
     const values = data.values || [];
     const totalRows = values.length;
     const startIndex = Math.max(0, values.length - count);
@@ -87,7 +100,7 @@ export class SheetsService {
       throw new Error(`Failed to get entry data: ${await getResponse.text()}`);
     }
 
-    const getData = await getResponse.json();
+    const getData = await getResponse.json() as ValuesResponse;
     const deletedEntry = getData.values ? getData.values[0] : [];
 
     // Get the sheet ID
@@ -102,8 +115,8 @@ export class SheetsService {
       throw new Error(`Failed to get spreadsheet info: ${await sheetsResponse.text()}`);
     }
 
-    const sheetsData = await sheetsResponse.json();
-    const sheet = sheetsData.sheets.find((s: any) => s.properties.title === '入力');
+    const sheetsData = await sheetsResponse.json() as SpreadsheetResponse;
+    const sheet = sheetsData.sheets.find(s => s.properties.title === '入力');
     
     if (!sheet) {
       throw new Error('Sheet "入力" not found');
@@ -158,7 +171,7 @@ export class SheetsService {
       throw new Error(`Failed to get unsettled amounts: ${await response.text()}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as ValuesResponse;
     return data.values || [];
   }
 }
