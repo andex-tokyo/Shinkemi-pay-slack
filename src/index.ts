@@ -17,11 +17,12 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      if (!ApiHandler.isAuthorized(request, env)) {
+      const payer = ApiHandler.getAuthenticatedPayer(request, env);
+      if (!payer) {
         return unauthorizedResponse();
       }
 
-      const api = new ApiHandler(env);
+      const api = new ApiHandler(env, payer);
       return api.handle(request);
     }
 

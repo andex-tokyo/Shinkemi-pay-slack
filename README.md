@@ -50,8 +50,11 @@ wrangler secret put SLACK_SIGNING_SECRET
 4. ChatGPT Actions API Keyを設定:
 
 ```bash
-wrangler secret put CHATGPT_ACTION_API_KEY
-# GPT BuilderのBearer Tokenに設定する値を入力
+wrangler secret put CHATGPT_ACTION_API_KEY_TSUCHIDA
+# 土田用GPT BuilderのBearer Tokenに設定する値を入力
+
+wrangler secret put CHATGPT_ACTION_API_KEY_KATO
+# 加藤用GPT BuilderのBearer Tokenに設定する値を入力
 ```
 
 ### 5. ローカル開発
@@ -114,6 +117,8 @@ npm run deploy
 
 Slack Slash Commandsの既存処理に加えて、ChatGPT Custom GPT Actionsから呼び出せるJSON APIを提供しています。Slack向けの署名検証、即時200 OK、`response_url`への非同期返信、`ctx.waitUntil()`の構成は維持したまま、`/api/*`配下だけBearer Token認証を要求します。
 
+登録時の立替者はリクエスト本文ではなくBearer Tokenで固定します。土田用Tokenを設定したGPTは常に土田、加藤用Tokenを設定したGPTは常に加藤として登録します。
+
 ### OpenAPI URL
 
 ```text
@@ -125,25 +130,27 @@ https://shinkemi-pay-slack.tsuchida.workers.dev/openapi.yaml
 ChatGPT Actions APIは以下のヘッダーで認証します。
 
 ```http
-Authorization: Bearer <CHATGPT_ACTION_API_KEY>
+Authorization: Bearer <CHATGPT_ACTION_API_KEY_TSUCHIDA または CHATGPT_ACTION_API_KEY_KATO>
 ```
 
 Cloudflare Workers本番環境では、以下のSecretを設定してください。
 
 ```bash
-wrangler secret put CHATGPT_ACTION_API_KEY
+wrangler secret put CHATGPT_ACTION_API_KEY_TSUCHIDA
+wrangler secret put CHATGPT_ACTION_API_KEY_KATO
 ```
 
-本番ではSecretとして管理します。ローカル開発でAPI認証を試す場合は、`.dev.vars`に`CHATGPT_ACTION_API_KEY`を設定してください。
+本番ではSecretとして管理します。ローカル開発でAPI認証を試す場合は、`.dev.vars`に同じ2つのキーを設定してください。
 
 ### GPT Builder設定例
 
 1. GPT Builderで「Configure」→「Actions」→「Create new action」を開く
 2. SchemaにOpenAPI URLの内容を貼り付ける、またはURLから読み込む
-3. Authenticationを以下のように設定する
+3. 土田用GPTと加藤用GPTをそれぞれ作成し、Authenticationを以下のように設定する
    - Type: API Key
    - Auth Type: Bearer
-   - API Key: `CHATGPT_ACTION_API_KEY`の値
+   - API Key: 土田用GPTには`CHATGPT_ACTION_API_KEY_TSUCHIDA`、加藤用GPTには`CHATGPT_ACTION_API_KEY_KATO`の値
+4. GPTのInstructionsには「登録時の立替者はこのGPTに設定されたBearer TokenでAPI側が固定するため、ユーザーに立替者を聞かない」と記載する
 
 ### ChatGPT Actions API一覧
 
@@ -157,7 +164,7 @@ wrangler secret put CHATGPT_ACTION_API_KEY
 
 ### 想定利用例
 
-- 「ランチ1200円を土田で割り勘登録して」
+- 「ランチ1200円を割り勘登録して」
 - 「最近の立替一覧を見せて」
 - 「未清算金額を教えて」
 - 「5行目を削除して」

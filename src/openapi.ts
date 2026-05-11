@@ -2,7 +2,7 @@ export const OPENAPI_YAML = `openapi: 3.1.0
 info:
   title: Shinkemi Pay API
   version: 1.0.0
-  description: ChatGPT Actions API for Shinkemi Pay Slack payment entries.
+  description: ChatGPT Actions API for Shinkemi Pay Slack payment entries. The payer is fixed by the Bearer token used by each GPT.
 servers:
   - url: https://shinkemi-pay-slack.tsuchida.workers.dev
 security:
@@ -176,18 +176,9 @@ components:
         amount:
           type: number
           exclusiveMinimum: 0
-        payer:
-          type: string
-          enum:
-            - 土田
-            - 加藤
-        splitBill:
-          type: boolean
       required:
         - item
         - amount
-        - payer
-        - splitBill
     TatekaeRequest:
       type: object
       properties:
@@ -196,15 +187,9 @@ components:
         amount:
           type: number
           exclusiveMinimum: 0
-        payer:
-          type: string
-          enum:
-            - 土田
-            - 加藤
       required:
         - item
         - amount
-        - payer
     Entry:
       type: object
       properties:

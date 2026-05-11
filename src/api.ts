@@ -1,5 +1,5 @@
 import { SheetsService } from './sheets';
-import { ApiPaymentRequest, Env, PaymentEntry } from './types';
+import { ApiPaymentRequest, Env, PaymentEntry, Payer } from './types';
 
 const API_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8'
@@ -32,7 +32,7 @@ async function readJson(request: Request): Promise<ApiPaymentRequest | null> {
   }
 }
 
-function validateEntryRequest(body: ApiPaymentRequest | null, fixedSplitBill?: boolean): string | PaymentEntry {
+function validateEntryRequest(body: ApiPaymentRequest | null, payer: Payer, fixedSplitBill?: boolean): string | PaymentEntry {
   if (!body) {
     return 'Request body must be valid JSON';
   }
@@ -53,8 +53,8 @@ function validateEntryRequest(body: ApiPaymentRequest | null, fixedSplitBill?: b
     return 'amount must be greater than 0';
   }
 
-  if (body.payer !== '土田' && body.payer !== '加藤') {
-    return 'payer must be 土田 or 加藤';
+  if (body.payer !== undefined && body.payer !== payer) {
+    return `payer is fixed as ${payer} by API key`;
   }
 
   const splitBill = fixedSplitBill ?? body.splitBill === true;
@@ -62,24 +62,31 @@ function validateEntryRequest(body: ApiPaymentRequest | null, fixedSplitBill?: b
     date: new Date().toISOString().split('T')[0],
     item: body.item.trim(),
     amount: body.amount,
-    payer: body.payer,
+    payer,
     splitBill
   };
 }
 
 export class ApiHandler {
   private sheets: SheetsService;
+  private payer: Payer;
 
-  constructor(env: Env) {
+  constructor(env: Env, payer: Payer) {
     this.sheets = new SheetsService(env.SPREADSHEET_ID, env.GOOGLE_SERVICE_ACCOUNT_KEY);
+    this.payer = payer;
   }
 
-  static isAuthorized(request: Request, env: Env): boolean {
+  static getAuthenticatedPayer(request: Request, env: Env): Payer | null {
     const authorization = request.headers.get('Authorization');
-    return Boolean(
-      env.CHATGPT_ACTION_API_KEY &&
-      authorization === `Bearer ${env.CHATGPT_ACTION_API_KEY}`
-    );
+    if (env.CHATGPT_ACTION_API_KEY_TSUCHIDA && authorization === `Bearer ${env.CHATGPT_ACTION_API_KEY_TSUCHIDA}`) {
+      return '土田';
+    }
+
+    if (env.CHATGPT_ACTION_API_KEY_KATO && authorization === `Bearer ${env.CHATGPT_ACTION_API_KEY_KATO}`) {
+      return '加藤';
+    }
+
+    return null;
   }
 
   async handle(request: Request): Promise<Response> {
@@ -117,7 +124,7 @@ export class ApiHandler {
 
   private async addEntry(request: Request, splitBill: boolean, message: string): Promise<Response> {
     const body = await readJson(request);
-    const entryOrError = validateEntryRequest(body, splitBill);
+    const entryOrError = validateEntryRequest(body, this.payer, splitBill);
 
     if (typeof entryOrError === 'string') {
       return jsonResponse({ ok: false, error: entryOrError }, 400);

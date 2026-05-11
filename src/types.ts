@@ -22,12 +22,16 @@ export interface Env {
   GOOGLE_SERVICE_ACCOUNT_KEY: string;
   SLACK_SIGNING_SECRET?: string;
   CHATGPT_ACTION_API_KEY?: string;
+  CHATGPT_ACTION_API_KEY_TSUCHIDA?: string;
+  CHATGPT_ACTION_API_KEY_KATO?: string;
 }
+
+export type Payer = '土田' | '加藤';
 
 export interface PaymentEntry {
   date: string;
   item: string;
-  payer: string;
+  payer: Payer;
   splitBill: boolean;
   amount: number;
 }
