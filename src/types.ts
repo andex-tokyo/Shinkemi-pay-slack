@@ -43,3 +43,7 @@ export interface ApiPaymentRequest {
   payer?: unknown;
   splitBill?: unknown;
 }
+
+export interface ApiSettlementRequest {
+  amount?: unknown;
+}

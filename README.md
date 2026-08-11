@@ -84,6 +84,7 @@ npm run deploy
    - `/pay_tatekae` - 立替項目を追加
    - `/pay_list` - 最近の10項目を表示
    - `/pay_delete` - 項目を削除
+   - `/pay_settle` - 相手へ支払った精算額を記録
    - `/pay_amount` - 未清算金額を表示
 3. Request URLにCloudflare WorkersのURLを設定
 
@@ -113,6 +114,13 @@ npm run deploy
 ```
 /pay_delete <行番号>
 ```
+
+### /pay_settle
+相手へ支払った金額を記録し、支払者本人の未清算額を減らします。
+```
+/pay_settle <金額> [支払者名]
+```
+例: `/pay_settle 10000` または `/pay_settle 10000 土田`
 
 ### /pay_amount
 未清算金額を表示します。
@@ -180,6 +188,7 @@ wrangler secret put SLACK_WEBHOOK_URL
 | GET | `/api/list` | `listPayEntries` | 最近10件を取得 |
 | DELETE | `/api/entries/{rowNumber}` | `deletePayEntry` | 指定行を削除 |
 | GET | `/api/amount` | `getUnsettledAmounts` | 未清算金額を取得 |
+| POST | `/api/settle` | `settlePayment` | 認証ユーザーが相手へ支払った精算額を記録 |
 
 ### 想定利用例
 

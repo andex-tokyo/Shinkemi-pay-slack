@@ -31,6 +31,15 @@ export class SlackNotifier {
     return this.send(`:wastebasket: *ChatGPTから行番号 ${rowNumber} の項目を削除しました*${detail}`);
   }
 
+  notifySettlement(paidBy: PaymentEntry['payer'], paidTo: PaymentEntry['payer'], amount: number): Promise<void> {
+    return this.send(
+      ':handshake: *ChatGPTから精算を記録しました*\n\n' +
+      `*支払者:* ${paidBy}\n` +
+      `*受取者:* ${paidTo}\n` +
+      `*金額:* ¥${formatAmount(amount)}`
+    );
+  }
+
   formatDeletedEntry(row: string[]) {
     if (row.length < 5) {
       return null;

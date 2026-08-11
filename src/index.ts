@@ -116,6 +116,8 @@ export default {
         return handler.handlePayList();
       case '/pay_delete':
         return handler.handlePayDelete(text);
+      case '/pay_settle':
+        return handler.handlePaySettle(text, userId);
       case '/pay_amount':
         return handler.handlePayAmount();
       default:

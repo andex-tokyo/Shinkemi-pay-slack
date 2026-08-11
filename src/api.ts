@@ -1,6 +1,6 @@
 import { SheetsService } from './sheets';
 import { SlackNotifier } from './slack-notifier';
-import { ApiPaymentRequest, Env, PaymentEntry, Payer } from './types';
+import { ApiPaymentRequest, ApiSettlementRequest, Env, PaymentEntry, Payer } from './types';
 
 const API_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8'
@@ -25,9 +25,13 @@ function parseSheetEntry(row: string[], rowNumber?: number) {
   };
 }
 
-async function readJson(request: Request): Promise<ApiPaymentRequest | null> {
+function otherPayer(payer: Payer): Payer {
+  return payer === '土田' ? '加藤' : '土田';
+}
+
+async function readJson<T>(request: Request): Promise<T | null> {
   try {
-    return await request.json();
+    return await request.json() as T;
   } catch {
     return null;
   }
@@ -107,6 +111,10 @@ export class ApiHandler {
         return await this.addEntry(request, false, '立替項目を追加しました');
       }
 
+      if (pathname === '/api/settle' && request.method === 'POST') {
+        return await this.settle(request);
+      }
+
       if (pathname === '/api/list' && request.method === 'GET') {
         return await this.listEntries();
       }
@@ -128,7 +136,7 @@ export class ApiHandler {
   }
 
   private async addEntry(request: Request, splitBill: boolean, message: string): Promise<Response> {
-    const body = await readJson(request);
+    const body = await readJson<ApiPaymentRequest>(request);
     const entryOrError = validateEntryRequest(body, this.payer, splitBill);
 
     if (typeof entryOrError === 'string') {
@@ -142,6 +150,37 @@ export class ApiHandler {
       ok: true,
       message,
       entry: entryOrError
+    });
+  }
+
+  private async settle(request: Request): Promise<Response> {
+    const body = await readJson<ApiSettlementRequest>(request);
+    if (!body) {
+      return jsonResponse({ ok: false, error: 'Request body must be valid JSON' }, 400);
+    }
+
+    if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) {
+      return jsonResponse({ ok: false, error: 'amount must be a number greater than 0' }, 400);
+    }
+
+    const paidBy = this.payer;
+    const paidTo = otherPayer(paidBy);
+    const entry: PaymentEntry = {
+      date: new Date().toISOString().split('T')[0],
+      item: `精算（${paidBy}→${paidTo}）`,
+      payer: paidTo,
+      splitBill: false,
+      amount: -body.amount
+    };
+
+    await this.sheets.addEntry(entry);
+    this.notifySlack(this.slack.notifySettlement(paidBy, paidTo, body.amount));
+
+    return jsonResponse({
+      ok: true,
+      message: '精算を記録しました',
+      settlement: { paidBy, paidTo, amount: body.amount },
+      entry
     });
   }
 

@@ -1,6 +1,16 @@
 import { SlackResponse, PaymentEntry } from './types';
 import { SheetsService } from './sheets';
 
+function payerFromUserId(userId: string): PaymentEntry['payer'] | null {
+  if (userId === 'U075AS43YKT') return '加藤';
+  if (userId === 'U074HKBTAF9') return '土田';
+  return null;
+}
+
+function otherPayer(payer: PaymentEntry['payer']): PaymentEntry['payer'] {
+  return payer === '土田' ? '加藤' : '土田';
+}
+
 export class CommandHandler {
   private sheets: SheetsService;
 
@@ -30,19 +40,14 @@ export class CommandHandler {
     let payer = parts.length === 3 ? parts[2] : '';
 
     if (!payer) {
-      switch (userId) {
-        case 'U075AS43YKT':
-          payer = '加藤';
-          break;
-        case 'U074HKBTAF9':
-          payer = '土田';
-          break;
-        default:
-          return {
-            response_type: 'ephemeral',
-            text: ':warning: 立替者を入力してください。\n例: `/pay ランチ 1200 土田`'
-          };
-      }
+      payer = payerFromUserId(userId) || '';
+    }
+
+    if (!payer) {
+      return {
+        response_type: 'ephemeral',
+        text: ':warning: 立替者を入力してください。\n例: `/pay ランチ 1200 土田`'
+      };
     }
 
     if (payer !== '土田' && payer !== '加藤') {
@@ -163,6 +168,58 @@ export class CommandHandler {
     }
   }
 
+  async handlePaySettle(text: string, userId: string): Promise<SlackResponse> {
+    const parts = text.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 1 || parts.length > 2) {
+      return {
+        response_type: 'ephemeral',
+        text: ':warning: 使い方: `/pay_settle <金額> [支払者名]`\n例: `/pay_settle 10000` または `/pay_settle 10000 土田`'
+      };
+    }
+
+    const amount = Number(parts[0].replace(/,/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return {
+        response_type: 'ephemeral',
+        text: ':x: 精算額は0より大きい数値で入力してください。\n例: `/pay_settle 10000`'
+      };
+    }
+
+    const paidBy = (parts[1] || payerFromUserId(userId)) as PaymentEntry['payer'] | null;
+    if (paidBy !== '土田' && paidBy !== '加藤') {
+      return {
+        response_type: 'ephemeral',
+        text: ':warning: 支払者を「土田」または「加藤」で入力してください。\n例: `/pay_settle 10000 土田`'
+      };
+    }
+
+    const paidTo = otherPayer(paidBy);
+    const entry: PaymentEntry = {
+      date: new Date().toISOString().split('T')[0],
+      item: `精算（${paidBy}→${paidTo}）`,
+      payer: paidTo,
+      splitBill: false,
+      amount: -amount
+    };
+
+    try {
+      await this.sheets.addEntry(entry);
+      return {
+        response_type: 'in_channel',
+        text: ':handshake: *精算を記録しました！*\n\n' +
+              `*支払者:* ${paidBy}\n` +
+              `*受取者:* ${paidTo}\n` +
+              `*金額:* ¥${amount.toLocaleString('ja-JP')}`
+      };
+    } catch (error) {
+      console.error('Error settling amount:', error);
+      return {
+        response_type: 'ephemeral',
+        text: ':x: 精算の記録中にエラーが発生しました。もう一度お試しください。'
+      };
+    }
+  }
+
   async handlePayAmount(): Promise<SlackResponse> {
     try {
       const data = await this.sheets.getUnsettledAmounts();
@@ -177,8 +234,8 @@ export class CommandHandler {
       const amounts = data.slice(1).map(row => {
         const name = row[0];
         const amount = parseFloat(row[1]);
-        const emoji = amount > 0 ? ':money_with_wings:' : ':moneybag:';
-        const prefix = amount > 0 ? '受取' : '支払';
+        const emoji = amount > 0 ? ':moneybag:' : ':money_with_wings:';
+        const prefix = amount > 0 ? '支払' : '受取';
         return `${emoji} *${name}:* ${prefix} ¥${Math.abs(amount).toLocaleString()}`;
       }).join('\n');
 

@@ -54,6 +54,29 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/settle:
+    post:
+      operationId: settlePayment
+      summary: Record money paid to the other person to reduce the authenticated payer's outstanding balance
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementRequest'
+      responses:
+        '200':
+          description: Settlement recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/list:
     get:
       operationId: listPayEntries
@@ -190,6 +213,14 @@ components:
       required:
         - item
         - amount
+    SettlementRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          exclusiveMinimum: 0
+      required:
+        - amount
     Entry:
       type: object
       properties:
@@ -235,6 +266,40 @@ components:
       required:
         - ok
         - message
+        - entry
+    SettlementResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        message:
+          type: string
+        settlement:
+          type: object
+          properties:
+            paidBy:
+              type: string
+              enum:
+                - 土田
+                - 加藤
+            paidTo:
+              type: string
+              enum:
+                - 土田
+                - 加藤
+            amount:
+              type: number
+          required:
+            - paidBy
+            - paidTo
+            - amount
+        entry:
+          $ref: '#/components/schemas/Entry'
+      required:
+        - ok
+        - message
+        - settlement
         - entry
     ErrorResponse:
       type: object

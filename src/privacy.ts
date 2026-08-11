@@ -39,7 +39,7 @@ export const PRIVACY_POLICY_HTML = `<!doctype html>
     <p>立替者はBearer Tokenにより「土田」または「加藤」に固定され、ユーザー入力から任意に決定されません。</p>
 
     <h2>利用目的</h2>
-    <p>取得した情報は、支払い記録の作成、最近の記録の表示、未清算金額の確認、指定行の削除、Slackへの登録・削除通知のために利用します。</p>
+    <p>取得した情報は、支払い・精算記録の作成、最近の記録の表示、未清算金額の確認、指定行の削除、Slackへの登録・削除通知のために利用します。</p>
 
     <h2>外部サービス</h2>
     <p>このGPT Actionは、Cloudflare Workers、Google Sheets API、Slack Incoming Webhookを利用します。登録・削除された内容はGoogle Sheetsに保存され、登録・削除通知はSlackに送信されます。</p>
