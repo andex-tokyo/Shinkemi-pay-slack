@@ -100,24 +100,24 @@ export class ApiHandler {
 
     try {
       if (pathname === '/api/pay' && request.method === 'POST') {
-        return this.addEntry(request, true, '割り勘項目を追加しました');
+        return await this.addEntry(request, true, '割り勘項目を追加しました');
       }
 
       if (pathname === '/api/tatekae' && request.method === 'POST') {
-        return this.addEntry(request, false, '立替項目を追加しました');
+        return await this.addEntry(request, false, '立替項目を追加しました');
       }
 
       if (pathname === '/api/list' && request.method === 'GET') {
-        return this.listEntries();
+        return await this.listEntries();
       }
 
       if (pathname === '/api/amount' && request.method === 'GET') {
-        return this.getUnsettledAmounts();
+        return await this.getUnsettledAmounts();
       }
 
       const deleteMatch = pathname.match(/^\/api\/entries\/(\d+)$/);
       if (deleteMatch && request.method === 'DELETE') {
-        return this.deleteEntry(Number(deleteMatch[1]));
+        return await this.deleteEntry(Number(deleteMatch[1]));
       }
 
       return jsonResponse({ ok: false, error: 'Not Found' }, 404);

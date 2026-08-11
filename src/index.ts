@@ -31,7 +31,7 @@ export default {
       }
 
       const api = new ApiHandler(env, payer, ctx);
-      return api.handle(request);
+      return await api.handle(request);
     }
 
     if (request.method !== 'POST') {

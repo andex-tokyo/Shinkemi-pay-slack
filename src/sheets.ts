@@ -158,7 +158,7 @@ export class SheetsService {
     const accessToken = await this.auth.getAccessToken();
     
     const range = encodeURIComponent('未清算金額!A:B');
-    const url = `${this.baseUrl}/${this.spreadsheetId}/values/${range}`;
+    const url = `${this.baseUrl}/${this.spreadsheetId}/values/${range}?valueRenderOption=UNFORMATTED_VALUE`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -172,6 +172,6 @@ export class SheetsService {
     }
 
     const data = await response.json() as ValuesResponse;
-    return data.values || [];
+    return (data.values || []).map(row => row.map(value => String(value)));
   }
 }
