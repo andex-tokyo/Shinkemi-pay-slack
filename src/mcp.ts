@@ -12,30 +12,35 @@ type JsonObject = Record<string, unknown>;
 
 const PROTOCOL_VERSION = '2025-03-26';
 const SERVER_INFO = { name: 'shinkemi-pay', version: '1.0.0' };
+const AUTH_SCHEMES = [{ type: 'oauth2', scopes: ['shinkemi:pay'] }];
 
 const tools = [
   {
     name: 'addPayEntry',
     description: '土田が立て替えた割り勘の支払いを登録する。項目名と金額が明確で、ユーザーが登録を依頼した時だけ呼ぶ。再試行すると重複する。',
     inputSchema: entrySchema(),
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: 'addTatekaeEntry',
     description: '土田が立て替えた割り勘しない支払いを登録する。項目名と金額が明確で、ユーザーが登録を依頼した時だけ呼ぶ。再試行すると重複する。',
     inputSchema: entrySchema(),
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: 'settlePayment',
     description: '土田が加藤へ実際に支払った精算額を記録する。支払い済みで金額が明確な場合だけ呼ぶ。予定や希望では呼ばない。再試行すると重複する。',
     inputSchema: amountSchema(),
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
   {
     name: 'listPayEntries',
     description: '最近10件の支払い・立替・精算履歴と、削除に使うシート行番号を取得する。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
   },
   {
@@ -47,12 +52,14 @@ const tools = [
       required: ['rowNumber'],
       additionalProperties: false
     },
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   },
   {
     name: 'getUnsettledAmounts',
     description: '未清算金額を取得する。正の値はその人が相手へ支払う額、負の値はその人が相手から受け取る額。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    securitySchemes: AUTH_SCHEMES,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
   }
 ];
@@ -95,6 +102,17 @@ function rpcError(id: string | number | null, code: number, message: string): Re
 
 function toolError(message: string): JsonObject {
   return { isError: true, content: [{ type: 'text', text: message }] };
+}
+
+function authChallenge(origin: string, scope: string): string {
+  return `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource", scope="${scope}", error="invalid_token", error_description="Sign in to use Shinkemi Pay"`;
+}
+
+function authToolError(origin: string, scope: string): JsonObject {
+  return {
+    ...toolError('認証が必要です。'),
+    _meta: { 'mcp/www_authenticate': [authChallenge(origin, scope)] }
+  };
 }
 
 function base64UrlDecode(value: string): Uint8Array {
@@ -215,11 +233,6 @@ export async function handleMcpRequest(request: Request, env: Env, ctx: Executio
     });
   }
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
-  if (!await authorized(request, env)) {
-    return json({ error: 'unauthorized' }, 401, {
-      'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`
-    });
-  }
   let rpc: JsonRpcRequest;
   try {
     rpc = await request.json() as JsonRpcRequest;
@@ -245,6 +258,9 @@ export async function handleMcpRequest(request: Request, env: Env, ctx: Executio
   if (rpc.method === 'tools/call') {
     const params = rpc.params as JsonObject | undefined;
     if (!params || typeof params.name !== 'string') return rpcError(rpc.id, -32602, 'Invalid params');
+    if (!await authorized(request, env)) {
+      return rpcResult(rpc.id, authToolError(url.origin, env.MCP_REQUIRED_SCOPE || 'shinkemi:pay'));
+    }
     try {
       return rpcResult(rpc.id, await callTool(params.name, params.arguments || {}, env, ctx, url.origin));
     } catch {
