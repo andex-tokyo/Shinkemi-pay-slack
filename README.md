@@ -205,7 +205,14 @@ GPT Actions用のOpenAPI定義はMCPプラグインに直接取り込めませ�
 
 ### 1. OAuthを準備する
 
-OAuthサービスで、このWorkerの `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp` を対象とするAPIを作成し、RS256署名のアクセストークン、`shinkemi:pay` スコープ、認可コードとPKCE S256、MCPクライアントの登録方式（CIMDまたはDCR）を設定します。利用者は土田のアカウント1件だけを許可します。設定時に必要な正確なリダイレクトURIは、ChatGPTのMCP接続管理画面に表示される値を使用してください。
+個人利用には[Auth0 Free](https://auth0.com/pricing)を推奨します。2026年9月時点の料金表では月額0ドル、Auth for MCPを含み、登録にクレジットカードは不要です。Auth0アカウントとテナントを作成したら、次を設定します。
+
+1. Auth0 Dashboardの Settings → Advanced で **Resource Parameter Compatibility Profile** と **Include Issuer in Authorization Responses** を有効にします。
+2. Applications → APIs で `Shinkemi Pay MCP` というAPIを作成します。Identifierは `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp`、署名アルゴリズムはRS256、権限は `shinkemi:pay` とします。
+3. 土田用の利用者アカウントを作成し、その利用者に `shinkemi:pay` 権限を付与します。Workerはこの利用者の `sub` だけを許可します。
+4. ChatGPTのMCP接続管理画面に表示されるクライアントメタデータURLとリダイレクトURIをAuth0へ登録します。CIMDを使う構成が適切です。
+
+Auth0の手順は[Auth0のMCPガイド](https://auth0.com/ai/docs/mcp/get-started/call-your-apis-on-users-behalf)と[OpenAIの認証ガイド](https://developers.openai.com/plugins/build/auth)も参照してください。Auth0以外のOAuthサービスでも、認可コードとPKCE S256、RS256署名のアクセストークン、MCPクライアント登録を満たせば利用できます。
 
 Cloudflare WorkerのSecretとして以下を設定します。値はGitやプラグインファイルへ保存しません。
 
