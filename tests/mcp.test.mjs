@@ -31,10 +31,18 @@ function base64Url(value) {
   return Buffer.from(value).toString('base64url');
 }
 
-test('MCP requires authorization and advertises resource metadata', async () => {
+test('MCP advertises OAuth and challenges private tool calls', async () => {
   const response = await worker.fetch(request({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), env, context);
-  assert.equal(response.status, 401);
-  assert.match(response.headers.get('WWW-Authenticate'), /oauth-protected-resource/);
+  assert.equal(response.status, 200);
+  const listed = await response.json();
+  assert.deepEqual(listed.result.tools[0].securitySchemes, [{ type: 'oauth2', scopes: ['shinkemi:pay'] }]);
+  const denied = await worker.fetch(request({
+    jsonrpc: '2.0', id: 2, method: 'tools/call',
+    params: { name: 'listPayEntries', arguments: {} }
+  }), env, context);
+  const challenge = (await denied.json()).result;
+  assert.equal(challenge.isError, true);
+  assert.match(challenge._meta['mcp/www_authenticate'][0], /oauth-protected-resource/);
   const metadata = await worker.fetch(new Request(`${origin}/.well-known/oauth-protected-resource`), env, context);
   assert.deepEqual(await metadata.json(), {
     resource: audience,
@@ -91,13 +99,19 @@ test('MCP verifies issuer, audience, subject, scope and signature', async () => 
       { scope: 'openid' },
       { exp: 1 }
     ]) {
-      const denied = await worker.fetch(request({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, await token(changes)), env, context);
-      assert.equal(denied.status, 401);
+      const denied = await worker.fetch(request({
+        jsonrpc: '2.0', id: 2, method: 'tools/call',
+        params: { name: 'deletePayEntry', arguments: { rowNumber: 1 } }
+      }, await token(changes)), env, context);
+      assert.equal((await denied.json()).result._meta['mcp/www_authenticate'].length, 1);
     }
     const [tokenHeader, tokenPayload, tokenSignature] = good.split('.');
     const tampered = `${tokenHeader}.${tokenPayload}.${tokenSignature[0] === 'A' ? 'B' : 'A'}${tokenSignature.slice(1)}`;
-    const denied = await worker.fetch(request({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, tampered), env, context);
-    assert.equal(denied.status, 401);
+    const denied = await worker.fetch(request({
+      jsonrpc: '2.0', id: 3, method: 'tools/call',
+      params: { name: 'deletePayEntry', arguments: { rowNumber: 1 } }
+    }, tampered), env, context);
+    assert.equal((await denied.json()).result._meta['mcp/www_authenticate'].length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
