@@ -132,6 +132,45 @@ npm run deploy
 
 Slack Slash Commandsの既存処理に加えて、ChatGPT Custom GPT Actionsから呼び出せるJSON APIを提供しています。Slack向けの署名検証、即時200 OK、`response_url`への非同期返信、`ctx.waitUntil()`の構成は維持したまま、`/api/*`配下だけBearer Token認証を要求します。
 
+## ChatGPTプラグインへの移行
+
+GPT Actions用のOpenAPI定義はMCPプラグインに直接取り込めません。プラグイン用には、同じWorkerの `/mcp` に6つの操作を用意しています。ChatGPTからの接続にはOAuth 2.1のログインが必要です。既存のActions APIキーをChatGPTのMCP接続へそのまま渡す構成にはしません。
+
+このMCP接続は土田専用です。OAuthアクセストークンの発行者、対象API、ユーザー識別子、権限、署名をWorkerが確認し、認証済みの呼び出しを既存APIの土田用処理へ渡します。認証設定がない間は `/mcp` の操作は拒否されます。既存のSlackコマンドとGPT Actions APIは引き続き利用できます。
+
+### 1. OAuthを準備する
+
+OAuthサービスで、このWorkerの `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp` を対象とするAPIを作成し、RS256署名のアクセストークン、`shinkemi:pay` スコープ、認可コードとPKCE S256、MCPクライアントの登録方式（CIMDまたはDCR）を設定します。利用者は土田のアカウント1件だけを許可します。設定時に必要な正確なリダイレクトURIは、ChatGPTのMCP接続管理画面に表示される値を使用してください。
+
+Cloudflare WorkerのSecretとして以下を設定します。値はGitやプラグインファイルへ保存しません。
+
+```bash
+wrangler secret put MCP_OAUTH_ISSUER
+wrangler secret put MCP_OAUTH_AUDIENCE
+wrangler secret put MCP_AUTHORIZED_SUBJECT
+wrangler secret put MCP_REQUIRED_SCOPE
+```
+
+- `MCP_OAUTH_ISSUER`: OAuthサービスのissuer URL。例: `https://your-tenant.auth0.com/`
+- `MCP_OAUTH_AUDIENCE`: `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp`
+- `MCP_AUTHORIZED_SUBJECT`: 土田のアクセストークンに入る`sub`の値
+- `MCP_REQUIRED_SCOPE`: `shinkemi:pay`。未設定時もこの値を要求します
+
+既存の `CHATGPT_ACTION_API_KEY_TSUCHIDA` Secretも必要です。MCP側はその値を内部で使って土田として処理します。
+
+### 2. Workerをデプロイして接続する
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run deploy
+```
+
+ChatGPTでDeveloper modeを有効にし、プラグインのMCP接続先に `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp` を登録します。認証方式はOAuthを選び、土田のアカウントで接続します。登録されたMCPサーバーの技術ID（`plugin_asdk_app...`）が得られたら、`shinkemi-pay/` のプラグインパッケージにその接続を紐づけられます。
+
+現時点の `shinkemi-pay/.mcp.json` は接続先URL、`shinkemi-pay/skills/shinkemi-pay/SKILL.md` は会話上の使い分けを記述しています。MCP接続とOAuthログインが成功するまでは、ChatGPT上での登録・削除の動作確認は完了していません。
+
 登録時の立替者はリクエスト本文ではなくBearer Tokenで固定します。土田用Tokenを設定したGPTは常に土田、加藤用Tokenを設定したGPTは常に加藤として登録します。
 
 `SLACK_WEBHOOK_URL`を設定している場合、ChatGPT Actions経由の追加・削除成功時にSlackへ通知します。一覧取得と未清算金額取得では通知しません。

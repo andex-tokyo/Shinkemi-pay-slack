@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "shinkemi_pay": {
+      "type": "http",
+      "url": "https://shinkemi-pay-slack.tsuchida.workers.dev/mcp"
+    }
+  }
+}

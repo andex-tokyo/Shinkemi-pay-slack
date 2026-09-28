@@ -1,0 +1,19 @@
+{
+  "name": "shinkemi-pay",
+  "version": "0.1.0",
+  "description": "土田用の割り勘・立替・精算記録をChatGPTとCodexから扱う。",
+  "author": {
+    "name": "andex-tokyo"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Shinkemi Pay",
+    "shortDescription": "土田用の家計・立替記録",
+    "longDescription": "割り勘、立替、精算の記録と履歴・未清算額の確認を行います。",
+    "developerName": "andex-tokyo",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["最近の一覧を見せて", "未清算金額を教えて", "ランチ1200円を割り勘登録して"]
+  },
+  "mcpServers": "./.mcp.json"
+}
