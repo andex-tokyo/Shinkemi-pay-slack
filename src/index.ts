@@ -11,7 +11,9 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === '/mcp' || url.pathname === '/.well-known/oauth-protected-resource') {
+    if (url.pathname === '/mcp' || url.pathname === '/mcp/kato' ||
+      url.pathname === '/.well-known/oauth-protected-resource' ||
+      url.pathname === '/.well-known/oauth-protected-resource/mcp/kato') {
       return handleMcpRequest(request, env, ctx);
     }
 
