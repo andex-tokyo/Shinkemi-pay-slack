@@ -28,6 +28,8 @@ export interface Env {
   MCP_OAUTH_ISSUER?: string;
   MCP_OAUTH_AUDIENCE?: string;
   MCP_AUTHORIZED_SUBJECT?: string;
+  MCP_OAUTH_AUDIENCE_KATO?: string;
+  MCP_AUTHORIZED_SUBJECT_KATO?: string;
   MCP_REQUIRED_SCOPE?: string;
 }
 
