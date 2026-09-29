@@ -1,5 +1,5 @@
 import { ApiHandler } from './api';
-import { Env } from './types';
+import { Env, Payer } from './types';
 
 type JsonRpcRequest = {
   jsonrpc?: unknown;
@@ -14,7 +14,7 @@ const PROTOCOL_VERSION = '2025-03-26';
 const SERVER_INFO = { name: 'shinkemi-pay', version: '1.0.0' };
 const AUTH_SCHEMES = [{ type: 'oauth2', scopes: ['shinkemi:pay'] }];
 
-const tools = [
+const toolDefinitions = [
   {
     name: 'addPayEntry',
     description: '土田が立て替えた割り勘の支払いを登録する。項目名と金額が明確で、ユーザーが登録を依頼した時だけ呼ぶ。再試行すると重複する。',
@@ -64,6 +64,39 @@ const tools = [
   }
 ];
 
+type McpIdentity = {
+  payer: Payer;
+  audience: string;
+  subject: string;
+  apiKey: string;
+  metadataPath: string;
+};
+
+function identityForPath(pathname: string, env: Env): McpIdentity | null {
+  if (pathname === '/mcp' && env.MCP_OAUTH_AUDIENCE && env.MCP_AUTHORIZED_SUBJECT && env.CHATGPT_ACTION_API_KEY_TSUCHIDA) {
+    return {
+      payer: '土田', audience: env.MCP_OAUTH_AUDIENCE, subject: env.MCP_AUTHORIZED_SUBJECT,
+      apiKey: env.CHATGPT_ACTION_API_KEY_TSUCHIDA, metadataPath: '/.well-known/oauth-protected-resource'
+    };
+  }
+  if (pathname === '/mcp/kato' && env.MCP_OAUTH_AUDIENCE_KATO && env.MCP_AUTHORIZED_SUBJECT_KATO && env.CHATGPT_ACTION_API_KEY_KATO &&
+    env.MCP_AUTHORIZED_SUBJECT_KATO !== env.MCP_AUTHORIZED_SUBJECT) {
+    return {
+      payer: '加藤', audience: env.MCP_OAUTH_AUDIENCE_KATO, subject: env.MCP_AUTHORIZED_SUBJECT_KATO,
+      apiKey: env.CHATGPT_ACTION_API_KEY_KATO, metadataPath: '/.well-known/oauth-protected-resource/mcp/kato'
+    };
+  }
+  return null;
+}
+
+function toolsFor(payer: Payer) {
+  if (payer === '土田') return toolDefinitions;
+  return toolDefinitions.map(tool => ({
+    ...tool,
+    description: tool.description.replaceAll('土田', 'PERSON').replaceAll('加藤', '土田').replaceAll('PERSON', '加藤')
+  }));
+}
+
 function entrySchema(): JsonObject {
   return {
     type: 'object',
@@ -104,14 +137,14 @@ function toolError(message: string): JsonObject {
   return { isError: true, content: [{ type: 'text', text: message }] };
 }
 
-function authChallenge(origin: string, scope: string): string {
-  return `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource", scope="${scope}", error="invalid_token", error_description="Sign in to use Shinkemi Pay"`;
+function authChallenge(origin: string, metadataPath: string, scope: string): string {
+  return `Bearer resource_metadata="${origin}${metadataPath}", scope="${scope}", error="invalid_token", error_description="Sign in to use Shinkemi Pay"`;
 }
 
-function authToolError(origin: string, scope: string): JsonObject {
+function authToolError(origin: string, metadataPath: string, scope: string): JsonObject {
   return {
     ...toolError('認証が必要です。'),
-    _meta: { 'mcp/www_authenticate': [authChallenge(origin, scope)] }
+    _meta: { 'mcp/www_authenticate': [authChallenge(origin, metadataPath, scope)] }
   };
 }
 
@@ -140,8 +173,8 @@ async function getJwks(issuer: string): Promise<JsonWebKey[]> {
   return body.keys;
 }
 
-async function authorized(request: Request, env: Env): Promise<boolean> {
-  if (!env.MCP_OAUTH_ISSUER || !env.MCP_OAUTH_AUDIENCE || !env.MCP_AUTHORIZED_SUBJECT) return false;
+async function authorized(request: Request, env: Env, identity: McpIdentity): Promise<boolean> {
+  if (!env.MCP_OAUTH_ISSUER) return false;
   const authorization = request.headers.get('Authorization') || '';
   if (!authorization.startsWith('Bearer ')) return false;
   const parts = authorization.slice(7).split('.');
@@ -154,9 +187,9 @@ async function authorized(request: Request, env: Env): Promise<boolean> {
     const audience = payload.aud;
     const now = Math.floor(Date.now() / 1000);
     if (header.alg !== 'RS256' || typeof header.kid !== 'string') return false;
-    if (payload.iss !== issuer || payload.sub !== env.MCP_AUTHORIZED_SUBJECT) return false;
-    if (!(audience === env.MCP_OAUTH_AUDIENCE ||
-      (Array.isArray(audience) && audience.includes(env.MCP_OAUTH_AUDIENCE)))) return false;
+    if (payload.iss !== issuer || payload.sub !== identity.subject) return false;
+    if (!(audience === identity.audience ||
+      (Array.isArray(audience) && audience.includes(identity.audience)))) return false;
     if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
     if (typeof payload.nbf === 'number' && payload.nbf > now) return false;
     const scope = env.MCP_REQUIRED_SCOPE || 'shinkemi:pay';
@@ -185,11 +218,10 @@ function validateArguments(name: string, args: unknown): string | null {
   return null;
 }
 
-async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionContext, origin: string): Promise<JsonObject> {
-  if (!tools.some(tool => tool.name === name)) return toolError('操作が見つかりません。');
+async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionContext, origin: string, identity: McpIdentity): Promise<JsonObject> {
+  if (!toolDefinitions.some(tool => tool.name === name)) return toolError('操作が見つかりません。');
   const validation = validateArguments(name, args);
   if (validation) return toolError(validation);
-  if (!env.CHATGPT_ACTION_API_KEY_TSUCHIDA) return toolError('土田用のAPI認証が設定されていません。');
 
   const values = args as JsonObject;
   const route: Record<string, [string, string]> = {
@@ -204,12 +236,12 @@ async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionCon
   const internalRequest = new Request(new URL(path, origin), {
     method,
     headers: {
-      Authorization: `Bearer ${env.CHATGPT_ACTION_API_KEY_TSUCHIDA}`,
+      Authorization: `Bearer ${identity.apiKey}`,
       'Content-Type': 'application/json'
     },
     ...(method === 'POST' ? { body: JSON.stringify(values) } : {})
   });
-  const response = await new ApiHandler(env, '土田', ctx).handle(internalRequest);
+  const response = await new ApiHandler(env, identity.payer, ctx).handle(internalRequest);
   const body = await response.json() as JsonObject;
   if (!response.ok || body.ok !== true) {
     return toolError(typeof body.error === 'string' ? body.error : '操作の結果を確認できませんでした。');
@@ -222,16 +254,20 @@ async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionCon
 
 export async function handleMcpRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname === '/.well-known/oauth-protected-resource') {
+  const resourcePath = url.pathname === '/mcp/kato' || url.pathname === '/.well-known/oauth-protected-resource/mcp/kato'
+    ? '/mcp/kato' : '/mcp';
+  const identity = identityForPath(resourcePath, env);
+  if (url.pathname === '/.well-known/oauth-protected-resource' || url.pathname === '/.well-known/oauth-protected-resource/mcp/kato') {
     if (request.method !== 'GET') return new Response(null, { status: 405 });
-    if (!env.MCP_OAUTH_ISSUER) return json({ error: 'MCP OAuth is not configured' }, 503);
+    if (!env.MCP_OAUTH_ISSUER || !identity || identity.audience !== `${url.origin}${resourcePath}`) return json({ error: 'MCP OAuth is not configured' }, 503);
     return json({
-      resource: `${url.origin}/mcp`,
+      resource: identity.audience,
       authorization_servers: [env.MCP_OAUTH_ISSUER],
       scopes_supported: [env.MCP_REQUIRED_SCOPE || 'shinkemi:pay'],
       bearer_methods_supported: ['header']
     });
   }
+  if (!identity || identity.audience !== `${url.origin}${resourcePath}`) return json({ error: 'MCP OAuth is not configured' }, 503);
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
   let rpc: JsonRpcRequest;
   try {
@@ -250,19 +286,19 @@ export async function handleMcpRequest(request: Request, env: Env, ctx: Executio
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER_INFO,
-      instructions: '土田専用の支払い記録。書き込み結果が不明な時は再試行しない。'
+      instructions: `${identity.payer}専用の支払い記録。書き込み結果が不明な時は再試行しない。`
     });
   }
   if (rpc.method === 'ping') return rpcResult(rpc.id, {});
-  if (rpc.method === 'tools/list') return rpcResult(rpc.id, { tools });
+  if (rpc.method === 'tools/list') return rpcResult(rpc.id, { tools: toolsFor(identity.payer) });
   if (rpc.method === 'tools/call') {
     const params = rpc.params as JsonObject | undefined;
     if (!params || typeof params.name !== 'string') return rpcError(rpc.id, -32602, 'Invalid params');
-    if (!await authorized(request, env)) {
-      return rpcResult(rpc.id, authToolError(url.origin, env.MCP_REQUIRED_SCOPE || 'shinkemi:pay'));
+    if (!await authorized(request, env, identity)) {
+      return rpcResult(rpc.id, authToolError(url.origin, identity.metadataPath, env.MCP_REQUIRED_SCOPE || 'shinkemi:pay'));
     }
     try {
-      return rpcResult(rpc.id, await callTool(params.name, params.arguments || {}, env, ctx, url.origin));
+      return rpcResult(rpc.id, await callTool(params.name, params.arguments || {}, env, ctx, url.origin, identity));
     } catch {
       return rpcResult(rpc.id, toolError('操作の結果を確認できませんでした。自動で再実行しないでください。'));
     }
