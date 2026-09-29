@@ -3,7 +3,7 @@ export const PRIVACY_POLICY_HTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Shinkemi Pay GPT Privacy Policy</title>
+  <title>Shinkemi Pay Privacy Policy</title>
   <style>
     body {
       color: #1f2937;
@@ -28,21 +28,21 @@ export const PRIVACY_POLICY_HTML = `<!doctype html>
 </head>
 <body>
   <main>
-    <h1>Shinkemi Pay GPT Privacy Policy</h1>
-    <p>最終更新日: 2026-05-11</p>
+    <h1>Shinkemi Pay Privacy Policy</h1>
+    <p>最終更新日: 2026-09-28</p>
 
     <h2>概要</h2>
-    <p>Shinkemi Pay GPTは、ユーザーの依頼に基づき、支払い・割り勘・立替情報をCloudflare Workers経由でGoogle Sheetsに記録し、必要に応じてSlackに通知します。</p>
+    <p>Shinkemi Payは、ユーザーの依頼に基づき、支払い・割り勘・立替・精算情報をCloudflare Workers経由でGoogle Sheetsに記録し、必要に応じてSlackに通知します。GPT ActionsとMCPプラグインの両方から利用できます。</p>
 
     <h2>取得・送信する情報</h2>
-    <p>このGPT Actionは、ユーザーが登録・確認・削除を依頼した内容に応じて、項目名、金額、日付、立替者、割り勘種別、スプレッドシートの行番号を処理します。</p>
+    <p>依頼内容に応じて、項目名、金額、日付、立替者、割り勘種別、スプレッドシートの行番号を処理します。MCPプラグインでは認証済みアカウントの識別子も照合します。</p>
     <p>立替者はBearer Tokenにより「土田」または「加藤」に固定され、ユーザー入力から任意に決定されません。</p>
 
     <h2>利用目的</h2>
     <p>取得した情報は、支払い・精算記録の作成、最近の記録の表示、未清算金額の確認、指定行の削除、Slackへの登録・削除通知のために利用します。</p>
 
     <h2>外部サービス</h2>
-    <p>このGPT Actionは、Cloudflare Workers、Google Sheets API、Slack Incoming Webhookを利用します。登録・削除された内容はGoogle Sheetsに保存され、登録・削除通知はSlackに送信されます。</p>
+    <p>Cloudflare Workers、Google Sheets API、Slack Incoming Webhookを利用します。MCPプラグインのログインには設定されたOAuth認証サービスを利用します。登録・削除された内容はGoogle Sheetsに保存され、登録・削除通知はSlackに送信されます。</p>
 
     <h2>共有・販売</h2>
     <p>処理した情報を第三者へ販売することはありません。運用に必要な範囲で、上記の外部サービスに送信されます。</p>
@@ -51,7 +51,7 @@ export const PRIVACY_POLICY_HTML = `<!doctype html>
     <p>APIキー、Google Service Account Key、Slack Webhook URLはCloudflare WorkersのSecretとして管理します。</p>
 
     <h2>問い合わせ</h2>
-    <p>このGPT Actionの管理者に直接お問い合わせください。</p>
+    <p>このサービスの管理者に直接お問い合わせください。</p>
   </main>
 </body>
 </html>`;
