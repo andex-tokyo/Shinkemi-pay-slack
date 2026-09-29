@@ -205,7 +205,7 @@ GPT Actions用のOpenAPI定義はMCPプラグインに直接取り込めませ�
 
 ### 1. OAuthを準備する
 
-個人利用には[Auth0 Free](https://auth0.com/pricing)を推奨します。2026年9月時点の料金表では月額0ドル、Auth for MCPを含み、登録にクレジットカードは不要です。Auth0アカウントとテナントを作成したら、次を設定します。
+個人利用には[Auth0 Free](https://auth0.com/pricing)を推奨します。2026年9月時点の料金表では月額0ドル、Auth for MCPを含み、登録にクレジットカードは不要です。今回作成したテナントのドメインは `dev-xmuo73ic0l8yfdus.us.auth0.com` です（Auth0 DashboardのManagement APIオーディエンスで確認）。次を設定します。
 
 1. Auth0 Dashboardの Settings → Advanced で **Resource Parameter Compatibility Profile** と **Include Issuer in Authorization Responses** を有効にします。
 2. Applications → APIs で `Shinkemi Pay MCP` というAPIを作成します。Identifierは `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp`、署名アルゴリズムはRS256、権限は `shinkemi:pay` とします。
@@ -223,7 +223,7 @@ wrangler secret put MCP_AUTHORIZED_SUBJECT
 wrangler secret put MCP_REQUIRED_SCOPE
 ```
 
-- `MCP_OAUTH_ISSUER`: OAuthサービスのissuer URL。例: `https://your-tenant.auth0.com/`
+- `MCP_OAUTH_ISSUER`: `https://dev-xmuo73ic0l8yfdus.us.auth0.com/`
 - `MCP_OAUTH_AUDIENCE`: `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp`
 - `MCP_AUTHORIZED_SUBJECT`: 土田のアクセストークンに入る`sub`の値
 - `MCP_REQUIRED_SCOPE`: `shinkemi:pay`。未設定時もこの値を要求します
