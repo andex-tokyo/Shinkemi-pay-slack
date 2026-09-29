@@ -201,7 +201,7 @@ wrangler secret put SLACK_WEBHOOK_URL
 
 GPT Actions用のOpenAPI定義はMCPプラグインに直接取り込めません。プラグイン用には、同じWorkerの `/mcp` に6つの操作を用意しています。ChatGPTからの接続にはOAuth 2.1のログインが必要です。既存のActions APIキーをChatGPTのMCP接続へそのまま渡す構成にはしません。
 
-このMCP接続は土田専用です。OAuthアクセストークンの発行者、対象API、ユーザー識別子、権限、署名をWorkerが確認し、認証済みの呼び出しを既存APIの土田用処理へ渡します。認証設定がない間は `/mcp` の操作は拒否されます。既存のSlackコマンドとGPT Actions APIは引き続き利用できます。
+`/mcp` は土田専用、`/mcp/kato` は加藤専用です。OAuthアクセストークンの発行者、対象API、ユーザー識別子、権限、署名をWorkerが確認し、それぞれの既存API処理へ渡します。加藤用の設定が未完了なら `/mcp/kato` は利用できません。両者のAuth0ユーザーは異なる識別子である必要があります。既存のSlackコマンドとGPT Actions APIは引き続き利用できます。
 
 ### 1. OAuthを準備する
 
@@ -230,6 +230,15 @@ wrangler secret put MCP_REQUIRED_SCOPE
 
 既存の `CHATGPT_ACTION_API_KEY_TSUCHIDA` Secretも必要です。MCP側はその値を内部で使って土田として処理します。
 
+### 加藤用の接続を追加する
+
+1. Auth0 Applications → APIs で加藤用APIを作り、Identifierを `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp/kato`、署名をRS256、権限を `shinkemi:pay` にします。ChatGPTのCIMDクライアントだけにこの権限を許可します。
+2. 加藤本人がGoogleログインした後、Auth0 Usersで `r14610@gmail.com` のユーザー識別子（`sub`）を確認します。メールアドレスだけを認証の根拠には使いません。
+3. WorkerのSecret `MCP_OAUTH_AUDIENCE_KATO` に加藤用Identifier、`MCP_AUTHORIZED_SUBJECT_KATO` に加藤本人の `sub` を設定します。既存の `CHATGPT_ACTION_API_KEY_KATO` も必要です。
+4. ChatGPTで別の個人用プラグインとして `/mcp/kato` を登録し、加藤本人のアカウントで接続します。OAuthメタデータは `/.well-known/oauth-protected-resource/mcp/kato` から取得できます。
+
+加藤用パッケージは `shinkemi-pay-kato/` にあります。土田用と加藤用の接続を混同しないよう、プラグイン名も分けます。
+
 ### 2. Workerをデプロイして接続する
 
 ```bash
@@ -241,7 +250,7 @@ npm run deploy
 
 ChatGPTでDeveloper modeを有効にし、プラグインのMCP接続先に `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp` を登録します。認証方式はOAuthを選び、土田のアカウントで接続します。登録されたMCPサーバーの技術ID（`plugin_asdk_app...`）が得られたら、`shinkemi-pay/` のプラグインパッケージにその接続を紐づけられます。
 
-現時点の `shinkemi-pay/.mcp.json` は接続先URL、`shinkemi-pay/skills/shinkemi-pay/SKILL.md` は会話上の使い分けを記述しています。MCP接続とOAuthログインが成功するまでは、ChatGPT上での登録・削除の動作確認は完了していません。
+`shinkemi-pay/mcp.json` は接続先URL、`shinkemi-pay/skills/shinkemi-pay/SKILL.md` は会話上の使い分けを記述しています。ChatGPT の OAuth 接続と読み取り専用の一覧取得まで確認済みです。登録・精算・削除は実データを変更するため、必要な項目をユーザーから受け取った場合だけ実行します。
 
 ## スプレッドシートの構成
 
