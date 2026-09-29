@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "shinkemi_pay_kato": {
+      "type": "streamable-http",
+      "url": "https://shinkemi-pay-slack.tsuchida.workers.dev/mcp/kato"
+    }
+  }
+}
