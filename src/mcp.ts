@@ -200,7 +200,7 @@ async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionCon
     },
     ...(method === 'POST' ? { body: JSON.stringify(values) } : {})
   });
-  const response = await new ApiHandler(env, actor.payer, ctx).handle(internalRequest);
+  const response = await new ApiHandler(env, actor.payer, ctx, 'MCPサーバー経由で').handle(internalRequest);
   const body = await response.json() as JsonObject;
   if (!response.ok || body.ok !== true) {
     return toolError(typeof body.error === 'string' ? body.error : '操作の結果を確認できませんでした。');

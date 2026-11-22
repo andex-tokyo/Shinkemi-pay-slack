@@ -5,12 +5,12 @@ function formatAmount(amount: number): string {
 }
 
 export class SlackNotifier {
-  constructor(private webhookUrl?: string) {}
+  constructor(private webhookUrl?: string, private source = 'ChatGPTから') {}
 
   notifyEntryAdded(entry: PaymentEntry): Promise<void> {
     const type = entry.splitBill ? '割り勘' : '立替';
     return this.send(
-      ':house: *ChatGPTから項目を追加しました*\n\n' +
+      `:house: *${this.source}項目を追加しました*\n\n` +
       `*項目:* ${entry.item}\n` +
       `*金額:* ¥${formatAmount(entry.amount)}\n` +
       `*立替者:* ${entry.payer}\n` +
@@ -28,12 +28,12 @@ export class SlackNotifier {
         `*タイプ:* ${deletedEntry.splitBill ? '割り勘' : '立替'}`
       : '';
 
-    return this.send(`:wastebasket: *ChatGPTから行番号 ${rowNumber} の項目を削除しました*${detail}`);
+    return this.send(`:wastebasket: *${this.source}行番号 ${rowNumber} の項目を削除しました*${detail}`);
   }
 
   notifySettlement(paidBy: PaymentEntry['payer'], paidTo: PaymentEntry['payer'], amount: number): Promise<void> {
     return this.send(
-      ':handshake: *ChatGPTから精算を記録しました*\n\n' +
+      `:handshake: *${this.source}精算を記録しました*\n\n` +
       `*支払者:* ${paidBy}\n` +
       `*受取者:* ${paidTo}\n` +
       `*金額:* ¥${formatAmount(amount)}`

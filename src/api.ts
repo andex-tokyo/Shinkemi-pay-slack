@@ -78,9 +78,9 @@ export class ApiHandler {
   private payer: Payer;
   private ctx: ExecutionContext;
 
-  constructor(env: Env, payer: Payer, ctx: ExecutionContext) {
+  constructor(env: Env, payer: Payer, ctx: ExecutionContext, notificationSource = 'ChatGPTから') {
     this.sheets = new SheetsService(env.SPREADSHEET_ID, env.GOOGLE_SERVICE_ACCOUNT_KEY);
-    this.slack = new SlackNotifier(env.SLACK_WEBHOOK_URL);
+    this.slack = new SlackNotifier(env.SLACK_WEBHOOK_URL, notificationSource);
     this.payer = payer;
     this.ctx = ctx;
   }
