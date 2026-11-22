@@ -1,13 +1,14 @@
-# Shinkemi Pay Slack Bot - Cloudflare Workers版
+# Shinkemi Pay - Cloudflare Workers版
 
-SlackのタイムアウトBを解決するため、Google Apps Script(GAS)からCloudflare Workersに移行したSlackボットです。
+Slack Slash Commands・MCP（Gemini / ChatGPT / Claude）・ChatGPT Custom GPT Actions から割り勘・立替・精算を Google Sheets に記録できる Cloudflare Workers アプリケーションです。
 
 ## 特徴
 
-- **高速レスポンス**: Cloudflare Workersを使用し、Slackの3秒タイムアウトに確実に対応
-- **非同期処理**: 重い処理はresponse_urlを使用して非同期で実行
-- **Google Sheets連携**: Google Sheets APIを使用してスプレッドシートにデータを保存
-- **TypeScript**: 型安全な開発環境
+- **マルチクライアント対応**: Slack Slash Commands、Streamable HTTP MCP（Gemini / ChatGPT / Claude）、ChatGPT Actions JSON API を単一の Worker で提供
+- **認証レスな秘密 URL 方式の MCP**: 外部 OAuth サービス（Auth0 等）不要で、Cloudflare Secret に保存したトークン付き URL で土田用・加藤用を安全に分離
+- **高速レスポンス**: Cloudflare Workers を使用し、Slack の 3 秒タイムアウトに確実に対応（`response_url` への非同期返信）
+- **Google Sheets 連携**: Google Sheets API を使用してスプレッドシートへ読み書き
+- **Slack 通知**: `SLACK_WEBHOOK_URL` 設定時、API / MCP 経由の登録・精算・削除を Slack へ自動通知
 
 ## セットアップ
 
@@ -17,235 +18,249 @@ SlackのタイムアウトBを解決するため、Google Apps Script(GAS)から
 npm install
 ```
 
-### 2. Google Service Accountの設定
+### 2. Google Service Account の設定
 
-1. [Google Cloud Console](https://console.cloud.google.com/)でプロジェクトを作成
-2. Google Sheets APIを有効化
-3. サービスアカウントを作成し、JSONキーをダウンロード
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成
+2. Google Sheets API を有効化
+3. サービスアカウントを作成し、JSON キーをダウンロード
 4. スプレッドシートをサービスアカウントのメールアドレスと共有
 
-### 3. Cloudflare Workersの設定
+### 3. Cloudflare Workers の設定
 
-1. `wrangler.toml`を編集してSPREADSHEET_IDを設定:
+1. `wrangler.toml` を編集して `SPREADSHEET_ID` を設定:
 
 ```toml
 [vars]
 SPREADSHEET_ID = "your-actual-spreadsheet-id"
 ```
 
-2. Google Service AccountのJSONキーをシークレットとして設定:
+2. 必要な Secret を設定:
 
 ```bash
+# Google Service Account の JSON キー全体
 wrangler secret put GOOGLE_SERVICE_ACCOUNT_KEY
-# JSONキー全体をペースト
-```
 
-3. (オプション) Slack Signing Secretを設定:
-
-```bash
+# (オプション) Slack リクエスト署名検証用
 wrangler secret put SLACK_SIGNING_SECRET
-# Slackアプリの設定からSigning Secretをコピーしてペースト
-```
 
-4. ChatGPT Actions API Keyを設定:
-
-```bash
+# API / MCP の内部認証・立替者固定用キー
 wrangler secret put CHATGPT_ACTION_API_KEY_TSUCHIDA
-# 土田用GPT BuilderのBearer Tokenに設定する値を入力
-
 wrangler secret put CHATGPT_ACTION_API_KEY_KATO
-# 加藤用GPT BuilderのBearer Tokenに設定する値を入力
-```
 
-5. (オプション) ChatGPT Actions経由の登録・削除をSlack通知する場合はIncoming Webhook URLを設定:
+# MCP 秘密 URL 用トークン（土田用・加藤用で別々のランダム文字列）
+wrangler secret put MCP_SECRET_TOKEN_TSUCHIDA
+wrangler secret put MCP_SECRET_TOKEN_KATO
 
-```bash
+# (オプション) API / MCP 経由の登録・精算・削除を Slack 通知する Incoming Webhook URL
 wrangler secret put SLACK_WEBHOOK_URL
-# Slack Incoming Webhook URLを入力
 ```
 
-### 6. ローカル開発
+### 4. ローカル開発・テスト・デプロイ
 
 ```bash
+# ローカル開発
 npm run dev
-```
 
-### 7. デプロイ
+# 型チェックとテスト
+npm run typecheck
+npm test
 
-```bash
+# デプロイ
 npm run deploy
 ```
 
-## Slackアプリの設定
+## MCP 接続（Gemini / ChatGPT / Claude）
 
-1. [Slack API](https://api.slack.com/apps)で新しいアプリを作成
-2. Slash Commandsを追加:
+同じ Worker 上で Streamable HTTP の MCP エンドポイントを提供しています。外部の OAuth サービスは使用せず、Cloudflare Worker の Secret に保存した長いランダムトークンを含む **秘密 URL** で土田用・加藤用を識別します。
+
+### 1. 秘密トークンを生成・設定する
+
+土田用・加藤用それぞれ別のランダム文字列を生成し、Cloudflare Worker の Secret として設定します（Git には保存しません）。内部処理には `CHATGPT_ACTION_API_KEY_TSUCHIDA` / `CHATGPT_ACTION_API_KEY_KATO` も必要です。
+
+```bash
+# ランダムトークン生成（2回実行して別々の値を使う）
+openssl rand -hex 24
+
+wrangler secret put MCP_SECRET_TOKEN_TSUCHIDA
+wrangler secret put MCP_SECRET_TOKEN_KATO
+```
+
+### 2. 各 AI クライアントから接続する
+
+- 土田用 URL: `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp/s/<MCP_SECRET_TOKEN_TSUCHIDA>`
+- 加藤用 URL: `https://shinkemi-pay-slack.tsuchida.workers.dev/mcp/s/<MCP_SECRET_TOKEN_KATO>`
+
+各クライアントで認証なし（OAuth 空欄 / No authentication）として上記 URL を登録します。
+
+- **Gemini アプリ**: **カスタマイズ → 連携サービス → ＋カスタム（MCP サーバーに接続）** で URL を入力し、**その他の設定は空のまま** で **次へ → 接続**
+- **ChatGPT**: Developer mode のカスタム MCP / コネクタで認証方式を **認証なし** にして URL を入力
+- **Claude**: **設定 → コネクタ → カスタムコネクタを追加** で URL を入力
+- **CLI（Claude Code / Gemini CLI 等）**: Streamable HTTP（`http`）の MCP サーバー URL として登録
+
+接続後、まずは読み取り専用の操作（「最近の一覧を見せて」「未清算金額を教えて」）で動作確認してください。
+
+> **セキュリティ注意**: 秘密 URL 自体が合鍵になるため、画面共有や外部ログへ公開しないようにしてください。漏洩した場合は `wrangler secret put` で新しい値に差し替えるだけで旧 URL を即座に無効化できます。
+
+### 提供される MCP ツール一覧
+
+| ツール名 | 説明 |
+| --- | --- |
+| `addPayEntry` | 割り勘項目を追加（立替者は URL のトークンで固定） |
+| `addTatekaeEntry` | 割り勘しない立替項目を追加 |
+| `settlePayment` | 相手へ実際に支払った精算額を記録 |
+| `listPayEntries` | 最近 10 件の履歴と削除用のシート行番号を取得 |
+| `deletePayEntry` | 指定したシート行番号（2 以上）を削除 |
+| `getUnsettledAmounts` | 未清算金額を取得（正＝支払う額、負＝受け取る額） |
+
+## Slack アプリの設定
+
+1. [Slack API](https://api.slack.com/apps) で新しいアプリを作成
+2. Slash Commands を追加:
    - `/pay` - 割り勘項目を追加
    - `/pay_tatekae` - 立替項目を追加
-   - `/pay_list` - 最近の10項目を表示
+   - `/pay_list` - 最近の 10 項目を表示
    - `/pay_delete` - 項目を削除
    - `/pay_settle` - 相手へ支払った精算額を記録
    - `/pay_amount` - 未清算金額を表示
-3. Request URLにCloudflare WorkersのURLを設定
+3. Request URL に Cloudflare Workers の URL を設定
 
-## コマンドの使い方
+## Slack コマンドの使い方
 
-### /pay
+### `/pay`
 割り勘項目を追加します。
-```
+```text
 /pay <項目名> <金額> [立替者名]
 ```
 例: `/pay ランチ 3000 土田`
 
-### /pay_tatekae
+### `/pay_tatekae`
 立替項目を追加します（割り勘しない）。
-```
+```text
 /pay_tatekae <項目名> <金額> [立替者名]
 ```
 
-### /pay_list
-最近の10項目を表示します。
-```
+### `/pay_list`
+最近の 10 項目を表示します。
+```text
 /pay_list
 ```
 
-### /pay_delete
+### `/pay_delete`
 指定した行番号の項目を削除します。
-```
+```text
 /pay_delete <行番号>
 ```
 
-### /pay_settle
+### `/pay_settle`
 相手へ支払った金額を記録し、支払者本人の未清算額を減らします。
-```
+```text
 /pay_settle <金額> [支払者名]
 ```
 例: `/pay_settle 10000` または `/pay_settle 10000 土田`
 
-### /pay_amount
+### `/pay_amount`
 未清算金額を表示します。
-```
+```text
 /pay_amount
 ```
 
-## ChatGPT Actions対応
+## ChatGPT Actions 対応（JSON API）
 
-Slack Slash Commandsの既存処理に加えて、ChatGPT Custom GPT Actionsから呼び出せるJSON APIを提供しています。Slack向けの署名検証、即時200 OK、`response_url`への非同期返信、`ctx.waitUntil()`の構成は維持したまま、`/api/*`配下だけBearer Token認証を要求します。
+Slack Slash Commands および MCP に加えて、ChatGPT Custom GPT Actions から呼び出せる JSON API (`/api/*`) を提供しています。`/api/*` 配下は Bearer Token 認証を要求し、登録時の立替者は Bearer Token によって「土田」または「加藤」に固定されます。
 
-登録時の立替者はリクエスト本文ではなくBearer Tokenで固定します。土田用Tokenを設定したGPTは常に土田、加藤用Tokenを設定したGPTは常に加藤として登録します。
+`SLACK_WEBHOOK_URL` を設定している場合、追加・精算・削除成功時に Slack へ通知します。一覧取得と未清算金額取得では通知しません。
 
-`SLACK_WEBHOOK_URL`を設定している場合、ChatGPT Actions経由の追加・削除成功時にSlackへ通知します。一覧取得と未清算金額取得では通知しません。
+### OpenAPI / Privacy Policy URL
 
-### OpenAPI URL
+- OpenAPI: `https://shinkemi-pay-slack.tsuchida.workers.dev/openapi.yaml`
+- Privacy Policy: `https://shinkemi-pay-slack.tsuchida.workers.dev/privacy`
 
-```text
-https://shinkemi-pay-slack.tsuchida.workers.dev/openapi.yaml
-```
-
-### Privacy Policy URL
-
-GPT BuilderでPrivacy Policy URLを求められた場合は、以下を設定してください。
-
-```text
-https://shinkemi-pay-slack.tsuchida.workers.dev/privacy
-```
-
-### API認証
-
-ChatGPT Actions APIは以下のヘッダーで認証します。
+### API 認証
 
 ```http
 Authorization: Bearer <CHATGPT_ACTION_API_KEY_TSUCHIDA または CHATGPT_ACTION_API_KEY_KATO>
 ```
 
-Cloudflare Workers本番環境では、以下のSecretを設定してください。
+ローカル開発で試す場合は、`.dev.vars` に同じキーを設定してください。
 
-```bash
-wrangler secret put CHATGPT_ACTION_API_KEY_TSUCHIDA
-wrangler secret put CHATGPT_ACTION_API_KEY_KATO
-wrangler secret put SLACK_WEBHOOK_URL
-```
+### GPT Builder 設定例
 
-本番ではSecretとして管理します。ローカル開発でAPI認証やSlack通知を試す場合は、`.dev.vars`に同じキーを設定してください。
-
-### GPT Builder設定例
-
-1. GPT Builderで「Configure」→「Actions」→「Create new action」を開く
-2. SchemaにOpenAPI URLの内容を貼り付ける、またはURLから読み込む
-3. Privacy Policy URLに`https://shinkemi-pay-slack.tsuchida.workers.dev/privacy`を設定する
-4. 土田用GPTと加藤用GPTをそれぞれ作成し、Authenticationを以下のように設定する
+1. GPT Builder で「Configure」→「Actions」→「Create new action」を開く
+2. Schema に OpenAPI URL の内容を貼り付ける、または URL から読み込む
+3. Privacy Policy URL に `https://shinkemi-pay-slack.tsuchida.workers.dev/privacy` を設定する
+4. 土田用 GPT と加藤用 GPT をそれぞれ作成し、Authentication を以下のように設定する
    - Type: API Key
    - Auth Type: Bearer
-   - API Key: 土田用GPTには`CHATGPT_ACTION_API_KEY_TSUCHIDA`、加藤用GPTには`CHATGPT_ACTION_API_KEY_KATO`の値
-5. GPTのInstructionsには「登録時の立替者はこのGPTに設定されたBearer TokenでAPI側が固定するため、ユーザーに立替者を聞かない」と記載する
+   - API Key: 土田用には `CHATGPT_ACTION_API_KEY_TSUCHIDA`、加藤用には `CHATGPT_ACTION_API_KEY_KATO`
+5. GPT の Instructions に「登録時の立替者は Bearer Token で API 側が固定するため、ユーザーに立替者を聞かない」と記載する
 
-### ChatGPT Actions API一覧
+### ChatGPT Actions API 一覧
 
 | Method | Path | operationId | 説明 |
 | --- | --- | --- | --- |
 | POST | `/api/pay` | `addPayEntry` | 割り勘項目を追加 |
 | POST | `/api/tatekae` | `addTatekaeEntry` | 立替項目を追加 |
-| GET | `/api/list` | `listPayEntries` | 最近10件を取得 |
+| GET | `/api/list` | `listPayEntries` | 最近 10 件を取得 |
 | DELETE | `/api/entries/{rowNumber}` | `deletePayEntry` | 指定行を削除 |
 | GET | `/api/amount` | `getUnsettledAmounts` | 未清算金額を取得 |
 | POST | `/api/settle` | `settlePayment` | 認証ユーザーが相手へ支払った精算額を記録 |
 
-### 想定利用例
-
-- 「ランチ1200円を割り勘登録して」
-- 「最近の立替一覧を見せて」
-- 「未清算金額を教えて」
-- 「5行目を削除して」
-
 ## スプレッドシートの構成
 
-以下のシートが必要です：
+以下のシートが必要です。
 
-1. **入力シート**: 
-   - 列A: 日付
-   - 列B: 項目
-   - 列C: 立替者
-   - 列D: 割り勘フラグ
-   - 列E: 金額
+1. **入力シート**:
+   - 列 A: 日付
+   - 列 B: 項目
+   - 列 C: 立替者
+   - 列 D: 割り勘フラグ
+   - 列 E: 金額
 
 2. **未清算金額シート**:
-   - 列A: 名前
-   - 列B: 金額
+   - 列 A: 名前
+   - 列 B: 金額
 
-3. **精算シート** (オプション)
+3. **精算シート**（オプション）
 
 ## トラブルシューティング
 
-### タイムアウトエラーが発生する場合
-- Cloudflare Workersは即座に200 OKを返し、処理はresponse_urlを使って非同期で行います
+### Slack でタイムアウトエラーが発生する場合
+- Cloudflare Workers は即座に 200 OK を返し、処理は `response_url` を使って非同期で行います
 - ログを確認: `wrangler tail`
 
-### Google Sheets APIエラー
+### Google Sheets API エラー
 - サービスアカウントがスプレッドシートにアクセス権を持っているか確認
-- SPREADSHEET_IDが正しいか確認
-- Google Sheets APIが有効になっているか確認
+- `SPREADSHEET_ID` が正しいか確認
+- Google Sheets API が有効になっているか確認
 
 ## 開発
 
 ### ディレクトリ構成
-```
+
+```text
 .
 ├── src/
-│   ├── index.ts          # メインエントリーポイント
-│   ├── api.ts            # ChatGPT Actions用JSON API
-│   ├── openapi.ts        # Workersで返却するOpenAPI YAML
-│   ├── privacy.ts        # GPT Actions用Privacy Policy
-│   ├── types.ts          # TypeScript型定義
-│   ├── sheets.ts         # Google Sheets API連携
-│   ├── commands.ts       # Slackコマンドハンドラー
-│   └── slack-verification.ts # Slackリクエスト検証
-├── openapi.yaml          # ChatGPT Actions用OpenAPI Schema
-├── wrangler.toml         # Cloudflare Workers設定
-├── tsconfig.json         # TypeScript設定
-└── package.json          # プロジェクト設定
+│   ├── index.ts              # メインエントリーポイント（ルーティング）
+│   ├── mcp.ts                # Streamable HTTP MCP サーバー（秘密 URL 方式）
+│   ├── api.ts                # JSON API ハンドラー（ChatGPT Actions / MCP 内部利用）
+│   ├── commands.ts           # Slack コマンドハンドラー
+│   ├── sheets.ts             # Google Sheets API 連携
+│   ├── google-auth.ts        # Google Service Account 認証
+│   ├── slack-notifier.ts     # Slack Incoming Webhook 通知
+│   ├── slack-verification.ts # Slack リクエスト署名検証
+│   ├── openapi.ts            # Workers で返却する OpenAPI YAML
+│   ├── privacy.ts            # Privacy Policy HTML
+│   └── types.ts              # TypeScript 型定義
+├── tests/
+│   └── mcp.test.mjs          # MCP エンドポイントのユニットテスト
+├── openapi.yaml              # ChatGPT Actions 用 OpenAPI Schema
+├── wrangler.toml             # Cloudflare Workers 設定
+├── tsconfig.json             # TypeScript 設定
+└── package.json              # プロジェクト設定
 ```
 
 ### ログの確認
+
 ```bash
 wrangler tail
 ```

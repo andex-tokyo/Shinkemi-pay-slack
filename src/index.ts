@@ -5,10 +5,19 @@ import { verifySlackRequest } from './slack-verification';
 import { ApiHandler, unauthorizedResponse } from './api';
 import { OPENAPI_YAML } from './openapi';
 import { PRIVACY_POLICY_HTML } from './privacy';
+import { handleMcpRequest } from './mcp';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith('/mcp/s/')) {
+      return handleMcpRequest(request, env, ctx);
+    }
+
+    if (url.pathname.startsWith('/.well-known/')) {
+      return new Response('Not Found', { status: 404 });
+    }
 
     if (url.pathname === '/openapi.yaml' && request.method === 'GET') {
       return new Response(OPENAPI_YAML, {
