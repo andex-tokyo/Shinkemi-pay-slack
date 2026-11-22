@@ -115,7 +115,7 @@ paths:
           required: true
           schema:
             type: integer
-            minimum: 1
+            minimum: 2
       responses:
         '200':
           description: Payment entry deleted

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
@@ -6,8 +7,7 @@ const bundle = await readFile(new URL('../dist/index.js', import.meta.url));
 const worker = (await import(`data:text/javascript;base64,${bundle.toString('base64')}`)).default;
 const origin = 'https://shinkemi-pay-slack.tsuchida.workers.dev';
 const env = {
-  CHATGPT_ACTION_API_KEY_TSUCHIDA: 'test-tsuchida-key',
-  CHATGPT_ACTION_API_KEY_KATO: 'test-kato-key',
+  SPREADSHEET_ID: 'test-sheet-id',
   MCP_SECRET_TOKEN_TSUCHIDA: 'secret-token-tsuchida-12345',
   MCP_SECRET_TOKEN_KATO: 'secret-token-kato-67890'
 };
@@ -20,6 +20,21 @@ function request(body, resource = tsuchidaUrl) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
+  });
+}
+
+async function createServiceAccountJson(email) {
+  const pair = await webcrypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify']
+  );
+  const pkcs8 = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64');
+  const pem = `-----BEGIN PRIVATE KEY-----\n${pkcs8.match(/.{1,64}/g).join('\n')}\n-----END PRIVATE KEY-----`;
+  return JSON.stringify({
+    client_email: email,
+    private_key_id: 'key-1',
+    private_key: pem
   });
 }
 
@@ -46,7 +61,7 @@ test('MCP exposes no OAuth metadata and rejects invalid secret paths', async () 
 
   const unconfigured = await worker.fetch(
     request({ jsonrpc: '2.0', id: 2, method: 'initialize' }, tsuchidaUrl),
-    { CHATGPT_ACTION_API_KEY_TSUCHIDA: 'test-tsuchida-key' },
+    {},
     context
   );
   assert.equal(unconfigured.status, 404);
@@ -64,7 +79,7 @@ test('MCP exposes no OAuth metadata and rejects invalid secret paths', async () 
   assert.equal(duplicateRes.status, 404);
 });
 
-test('MCP secret URL endpoints work for both Tsuchida and Kato with Gemini-compatible schemas', async () => {
+test('MCP secret URL endpoints work without API keys for both Tsuchida and Kato', async () => {
   const preflight = await worker.fetch(new Request(tsuchidaUrl, { method: 'OPTIONS' }), env, context);
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('Access-Control-Allow-Origin'), '*');
@@ -124,4 +139,78 @@ test('MCP secret URL endpoints work for both Tsuchida and Kato with Gemini-compa
   const katoToolsBody = await katoTools.json();
   assert.match(katoToolsBody.result.tools[0].description, /加藤が立て替えた/);
   assert.equal(katoToolsBody.result.tools[0].securitySchemes, undefined);
+});
+
+test('MCP tools sanitize formulas, cache Google OAuth tokens, and notify Slack as MCP', async () => {
+  const saKey = await createServiceAccountJson('mcp-test@example.iam.gserviceaccount.com');
+  const fullEnv = {
+    ...env,
+    GOOGLE_SERVICE_ACCOUNT_KEY: saKey,
+    SLACK_WEBHOOK_URL: 'https://hooks.slack.test/services/mcp'
+  };
+
+  let tokenFetches = 0;
+  let appendedRow = null;
+  let batchUpdateCalled = false;
+  const slackMessages = [];
+  const pending = [];
+  const waitCtx = { waitUntil(promise) { pending.push(promise); } };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url === 'https://oauth2.googleapis.com/token') {
+      tokenFetches += 1;
+      return Response.json({ access_token: 'mock-google-token', expires_in: 3600 });
+    }
+    if (url.includes(':append')) {
+      appendedRow = JSON.parse(init.body).values[0];
+      return Response.json({ updates: { updatedRows: 1 } });
+    }
+    if (url.includes(encodeURIComponent('入力!A99:E99'))) {
+      return Response.json({});
+    }
+    if (url.includes(':batchUpdate')) {
+      batchUpdateCalled = true;
+      return Response.json({});
+    }
+    if (url === fullEnv.SLACK_WEBHOOK_URL) {
+      slackMessages.push(JSON.parse(init.body).text);
+      return new Response('ok', { status: 200 });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const addRes = await worker.fetch(request({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/call',
+      params: { name: 'addPayEntry', arguments: { item: '=SUM(A1)', amount: 1200 } }
+    }, tsuchidaUrl), fullEnv, waitCtx);
+    assert.equal(addRes.status, 200);
+    const addBody = await addRes.json();
+    assert.equal(addBody.result.structuredContent.ok, true);
+    assert.equal(appendedRow[1], "'=SUM(A1)");
+    assert.equal(appendedRow[2], '土田');
+
+    const deleteMissing = await worker.fetch(request({
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'tools/call',
+      params: { name: 'deletePayEntry', arguments: { rowNumber: 99 } }
+    }, tsuchidaUrl), fullEnv, waitCtx);
+    const deleteBody = await deleteMissing.json();
+    assert.equal(deleteBody.result.isError, true);
+    assert.match(deleteBody.result.content[0].text, /見つかりません/);
+    assert.equal(batchUpdateCalled, false);
+
+    await Promise.all(pending);
+    assert.equal(tokenFetches, 1);
+    assert.equal(slackMessages.length, 1);
+    assert.match(slackMessages[0], /MCPサーバー経由で項目を追加しました/);
+    assert.doesNotMatch(slackMessages[0], /ChatGPT/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

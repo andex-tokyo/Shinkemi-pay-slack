@@ -69,6 +69,7 @@ export default {
       if (body.response_url) {
         ctx.waitUntil(
           this.processCommandAsync(body, env).catch(error => {
+            console.error('Async command processing error:', error);
           })
         );
       }
@@ -76,6 +77,7 @@ export default {
       // Slackにすぐに200 OKを返す
       return new Response('', { status: 200 });
     } catch (error) {
+      console.error('Slack request handling error:', error);
       return new Response('Internal Server Error', { status: 500 });
     }
   },
@@ -88,12 +90,13 @@ export default {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(response)
       });
-      
+
       if (!result.ok) {
-      } else {
+        console.error('Failed to send Slack response:', result.status, await result.text());
       }
     } catch (error) {
-      
+      console.error('Command execution error:', error);
+
       try {
         await fetch(body.response_url!, {
           method: 'POST',
@@ -104,6 +107,7 @@ export default {
           })
         });
       } catch (sendError) {
+        console.error('Failed to send Slack error response:', sendError);
       }
     }
   },

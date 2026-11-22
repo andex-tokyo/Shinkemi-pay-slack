@@ -1,6 +1,7 @@
-import { SheetsService } from './sheets';
-import { SlackNotifier } from './slack-notifier';
-import { ApiPaymentRequest, ApiSettlementRequest, Env, PaymentEntry, Payer } from './types';
+import { PaymentService } from './payment-service';
+import { SheetError } from './sheets';
+import { ApiPaymentRequest, ApiSettlementRequest, Env, Payer } from './types';
+import { timingSafeEqual } from './utils';
 
 const API_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8'
@@ -13,22 +14,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function parseSheetEntry(row: string[], rowNumber?: number) {
-  const [date = '', item = '', payer = '', splitBill = 'FALSE', amount = '0'] = row;
-  return {
-    ...(rowNumber === undefined ? {} : { rowNumber }),
-    date,
-    item,
-    amount: Number(amount),
-    payer,
-    splitBill: splitBill === 'TRUE'
-  };
-}
-
-function otherPayer(payer: Payer): Payer {
-  return payer === '土田' ? '加藤' : '土田';
-}
-
 async function readJson<T>(request: Request): Promise<T | null> {
   try {
     return await request.json() as T;
@@ -37,7 +22,11 @@ async function readJson<T>(request: Request): Promise<T | null> {
   }
 }
 
-function validateEntryRequest(body: ApiPaymentRequest | null, payer: Payer, fixedSplitBill?: boolean): string | PaymentEntry {
+function validateEntryRequest(
+  body: ApiPaymentRequest | null,
+  payer: Payer,
+  fixedSplitBill?: boolean
+): string | { item: string; amount: number; splitBill: boolean } {
   if (!body) {
     return 'Request body must be valid JSON';
   }
@@ -62,36 +51,41 @@ function validateEntryRequest(body: ApiPaymentRequest | null, payer: Payer, fixe
     return `payer is fixed as ${payer} by API key`;
   }
 
-  const splitBill = fixedSplitBill ?? body.splitBill === true;
   return {
-    date: new Date().toISOString().split('T')[0],
     item: body.item.trim(),
     amount: body.amount,
-    payer,
-    splitBill
+    splitBill: fixedSplitBill ?? body.splitBill === true
   };
 }
 
 export class ApiHandler {
-  private sheets: SheetsService;
-  private slack: SlackNotifier;
+  private service: PaymentService;
   private payer: Payer;
-  private ctx: ExecutionContext;
 
   constructor(env: Env, payer: Payer, ctx: ExecutionContext, notificationSource = 'ChatGPTから') {
-    this.sheets = new SheetsService(env.SPREADSHEET_ID, env.GOOGLE_SERVICE_ACCOUNT_KEY);
-    this.slack = new SlackNotifier(env.SLACK_WEBHOOK_URL, notificationSource);
+    this.service = new PaymentService(env, payer, ctx, notificationSource);
     this.payer = payer;
-    this.ctx = ctx;
   }
 
   static getAuthenticatedPayer(request: Request, env: Env): Payer | null {
-    const authorization = request.headers.get('Authorization');
-    if (env.CHATGPT_ACTION_API_KEY_TSUCHIDA && authorization === `Bearer ${env.CHATGPT_ACTION_API_KEY_TSUCHIDA}`) {
+    const authorization = request.headers.get('Authorization') || '';
+    if (!authorization.startsWith('Bearer ')) {
+      return null;
+    }
+
+    const token = authorization.slice('Bearer '.length);
+    const tsuchidaKey = env.CHATGPT_ACTION_API_KEY_TSUCHIDA || '';
+    const katoKey = env.CHATGPT_ACTION_API_KEY_KATO || '';
+
+    if (tsuchidaKey && katoKey && timingSafeEqual(tsuchidaKey, katoKey)) {
+      return null;
+    }
+
+    if (tsuchidaKey && timingSafeEqual(token, tsuchidaKey)) {
       return '土田';
     }
 
-    if (env.CHATGPT_ACTION_API_KEY_KATO && authorization === `Bearer ${env.CHATGPT_ACTION_API_KEY_KATO}`) {
+    if (katoKey && timingSafeEqual(token, katoKey)) {
       return '加藤';
     }
 
@@ -104,11 +98,11 @@ export class ApiHandler {
 
     try {
       if (pathname === '/api/pay' && request.method === 'POST') {
-        return await this.addEntry(request, true, '割り勘項目を追加しました');
+        return await this.addEntry(request, true);
       }
 
       if (pathname === '/api/tatekae' && request.method === 'POST') {
-        return await this.addEntry(request, false, '立替項目を追加しました');
+        return await this.addEntry(request, false);
       }
 
       if (pathname === '/api/settle' && request.method === 'POST') {
@@ -116,11 +110,11 @@ export class ApiHandler {
       }
 
       if (pathname === '/api/list' && request.method === 'GET') {
-        return await this.listEntries();
+        return jsonResponse(await this.service.listEntries());
       }
 
       if (pathname === '/api/amount' && request.method === 'GET') {
-        return await this.getUnsettledAmounts();
+        return jsonResponse(await this.service.getUnsettledAmounts());
       }
 
       const deleteMatch = pathname.match(/^\/api\/entries\/(\d+)$/);
@@ -130,12 +124,15 @@ export class ApiHandler {
 
       return jsonResponse({ ok: false, error: 'Not Found' }, 404);
     } catch (error) {
+      if (error instanceof SheetError) {
+        return jsonResponse({ ok: false, error: error.message }, error.statusCode);
+      }
       console.error('API error:', error);
       return jsonResponse({ ok: false, error: 'Internal Server Error' }, 500);
     }
   }
 
-  private async addEntry(request: Request, splitBill: boolean, message: string): Promise<Response> {
+  private async addEntry(request: Request, splitBill: boolean): Promise<Response> {
     const body = await readJson<ApiPaymentRequest>(request);
     const entryOrError = validateEntryRequest(body, this.payer, splitBill);
 
@@ -143,14 +140,8 @@ export class ApiHandler {
       return jsonResponse({ ok: false, error: entryOrError }, 400);
     }
 
-    await this.sheets.addEntry(entryOrError);
-    this.notifySlack(this.slack.notifyEntryAdded(entryOrError));
-
-    return jsonResponse({
-      ok: true,
-      message,
-      entry: entryOrError
-    });
+    const result = await this.service.addEntry(entryOrError.item, entryOrError.amount, entryOrError.splitBill);
+    return jsonResponse(result);
   }
 
   private async settle(request: Request): Promise<Response> {
@@ -163,72 +154,17 @@ export class ApiHandler {
       return jsonResponse({ ok: false, error: 'amount must be a number greater than 0' }, 400);
     }
 
-    const paidBy = this.payer;
-    const paidTo = otherPayer(paidBy);
-    const entry: PaymentEntry = {
-      date: new Date().toISOString().split('T')[0],
-      item: `精算（${paidBy}→${paidTo}）`,
-      payer: paidTo,
-      splitBill: false,
-      amount: -body.amount
-    };
-
-    await this.sheets.addEntry(entry);
-    this.notifySlack(this.slack.notifySettlement(paidBy, paidTo, body.amount));
-
-    return jsonResponse({
-      ok: true,
-      message: '精算を記録しました',
-      settlement: { paidBy, paidTo, amount: body.amount },
-      entry
-    });
-  }
-
-  private async listEntries(): Promise<Response> {
-    const { entries, totalRows } = await this.sheets.getRecentEntries(10);
-    const startRow = totalRows - entries.length + 1;
-
-    return jsonResponse({
-      ok: true,
-      entries: entries.map((row, index) => parseSheetEntry(row, startRow + index))
-    });
+    const result = await this.service.settle(body.amount);
+    return jsonResponse(result);
   }
 
   private async deleteEntry(rowNumber: number): Promise<Response> {
-    if (!Number.isInteger(rowNumber) || rowNumber <= 0) {
-      return jsonResponse({ ok: false, error: 'rowNumber must be a positive integer' }, 400);
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+      return jsonResponse({ ok: false, error: 'rowNumber must be an integer greater than or equal to 2' }, 400);
     }
 
-    const deletedEntry = await this.sheets.deleteEntry(rowNumber);
-    const formattedDeletedEntry = this.slack.formatDeletedEntry(deletedEntry);
-    this.notifySlack(this.slack.notifyEntryDeleted(rowNumber, formattedDeletedEntry));
-
-    return jsonResponse({
-      ok: true,
-      message: `行番号 ${rowNumber} の項目を削除しました`,
-      deletedEntry: formattedDeletedEntry
-    });
-  }
-
-  private async getUnsettledAmounts(): Promise<Response> {
-    const data = await this.sheets.getUnsettledAmounts();
-    const amounts = data.slice(1).map(row => ({
-      name: row[0] || '',
-      amount: Number(row[1] || 0)
-    }));
-
-    return jsonResponse({
-      ok: true,
-      amounts
-    });
-  }
-
-  private notifySlack(notification: Promise<void>): void {
-    this.ctx.waitUntil(
-      notification.catch(error => {
-        console.error('Slack notification error:', error);
-      })
-    );
+    const result = await this.service.deleteEntry(rowNumber);
+    return jsonResponse(result);
   }
 }
 

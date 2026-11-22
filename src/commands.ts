@@ -1,14 +1,11 @@
 import { SlackResponse, PaymentEntry } from './types';
-import { SheetsService } from './sheets';
+import { SheetError, SheetsService } from './sheets';
+import { otherPayer, todayInJst } from './utils';
 
 function payerFromUserId(userId: string): PaymentEntry['payer'] | null {
   if (userId === 'U075AS43YKT') return '加藤';
   if (userId === 'U074HKBTAF9') return '土田';
   return null;
-}
-
-function otherPayer(payer: PaymentEntry['payer']): PaymentEntry['payer'] {
-  return payer === '土田' ? '加藤' : '土田';
 }
 
 export class CommandHandler {
@@ -19,21 +16,22 @@ export class CommandHandler {
   }
 
   async handlePay(text: string, splitBill: boolean, userId: string): Promise<SlackResponse> {
-    const parts = text.split(' ');
+    const commandName = splitBill ? '/pay' : '/pay_tatekae';
+    const parts = text.trim().split(/\s+/).filter(Boolean);
     if (parts.length < 2 || parts.length > 3) {
       return {
         response_type: 'ephemeral',
-        text: ':warning: 使い方: `/pay <項目> <金額> [立替者名]`\n例: `/pay ランチ 1200` または `/pay ランチ 1200 土田`'
+        text: `:warning: 使い方: \`${commandName} <項目> <金額> [立替者名]\`\n例: \`${commandName} ランチ 1200\` または \`${commandName} ランチ 1200 土田\``
       };
     }
 
     const item = parts[0];
-    const amount = parseFloat(parts[1]);
+    const amount = Number(parts[1].replace(/,/g, ''));
 
-    if (isNaN(amount)) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return {
         response_type: 'ephemeral',
-        text: ':x: 金額は数値で入力してください。\n例: `/pay ランチ 1200`'
+        text: `:x: 金額は0より大きい数値で入力してください。\n例: \`${commandName} ランチ 1200\``
       };
     }
 
@@ -46,7 +44,7 @@ export class CommandHandler {
     if (!payer) {
       return {
         response_type: 'ephemeral',
-        text: ':warning: 立替者を入力してください。\n例: `/pay ランチ 1200 土田`'
+        text: `:warning: 立替者を入力してください。\n例: \`${commandName} ランチ 1200 土田\``
       };
     }
 
@@ -58,7 +56,7 @@ export class CommandHandler {
     }
 
     const entry: PaymentEntry = {
-      date: new Date().toISOString().split('T')[0],
+      date: todayInJst(),
       item,
       payer,
       splitBill,
@@ -67,15 +65,15 @@ export class CommandHandler {
 
     try {
       await this.sheets.addEntry(entry);
-      
+
       const type = splitBill ? '割り勘' : '立替';
       const emoji = splitBill ? ':handshake:' : ':receipt:';
-      
+
       return {
         response_type: 'in_channel',
         text: `${emoji} *${type}項目を追加しました！*\n\n` +
               `*項目:* ${item}\n` +
-              `*金額:* ¥${amount.toLocaleString()}\n` +
+              `*金額:* ¥${amount.toLocaleString('ja-JP')}\n` +
               `*立替者:* ${payer}\n` +
               `*タイプ:* ${type}`
       };
@@ -92,27 +90,26 @@ export class CommandHandler {
     try {
       const result = await this.sheets.getRecentEntries(10);
       const { entries, totalRows } = result;
-      
+
       if (entries.length === 0) {
         return {
           response_type: 'in_channel',
           text: ':clipboard: 記録されている項目はありません。'
         };
       }
-      
-      // 実際のスプレッドシートの行番号を計算（最後の10件の実際の行番号）
+
       const startRow = totalRows - entries.length + 1;
       const formattedEntries = entries.map((row, index) => {
         const actualRowNumber = startRow + index;
-        const [date, item, payer, splitBill, amount] = row;
+        const [date = '', item = '', payer = '', splitBill = 'FALSE', amount = '0'] = row;
         const type = splitBill === 'TRUE' ? '割' : '立';
-        const formattedAmount = parseFloat(amount).toLocaleString();
+        const formattedAmount = Number(amount).toLocaleString('ja-JP');
         return `\`${actualRowNumber.toString().padStart(3, ' ')}\` | ${date} | ${item.padEnd(10, '　').slice(0, 10)} | ¥${formattedAmount.padStart(6, ' ')} | ${payer} | ${type}`;
       }).join('\n');
 
       return {
         response_type: 'in_channel',
-        text: ':ledger: *最近の10項目*\n\n```\n 行  |    日付    |    項目    |   金額   | 立替 | 種別\n' + 
+        text: ':ledger: *最近の10項目*\n\n```\n 行  |    日付    |    項目    |   金額   | 立替 | 種別\n' +
               '-----+------------+------------+----------+------+-----\n' +
               formattedEntries + '\n```\n\n' +
               '_削除する場合: `/pay_delete 行番号`_'
@@ -127,22 +124,30 @@ export class CommandHandler {
   }
 
   async handlePayDelete(text: string): Promise<SlackResponse> {
-    const rowNumber = parseInt(text, 10);
-    if (isNaN(rowNumber) || rowNumber <= 0) {
+    const trimmed = text.trim();
+    if (!/^\d+$/.test(trimmed)) {
       return {
         response_type: 'ephemeral',
         text: ':warning: 正しい行番号を入力してください。\n例: `/pay_delete 5`'
       };
     }
 
+    const rowNumber = Number(trimmed);
+    if (rowNumber < 2) {
+      return {
+        response_type: 'ephemeral',
+        text: ':warning: 2以上の行番号を入力してください（1行目は見出しのため削除できません）。\n例: `/pay_delete 5`'
+      };
+    }
+
     try {
       const deletedEntry = await this.sheets.deleteEntry(rowNumber);
-      
+
       if (deletedEntry && deletedEntry.length >= 5) {
         const [date, item, payer, splitBill, amount] = deletedEntry;
         const type = splitBill === 'TRUE' ? '割り勘' : '立替';
-        const formattedAmount = parseFloat(amount).toLocaleString();
-        
+        const formattedAmount = Number(amount).toLocaleString('ja-JP');
+
         return {
           response_type: 'in_channel',
           text: `:wastebasket: *行番号 ${rowNumber} の項目を削除しました*\n\n` +
@@ -153,13 +158,19 @@ export class CommandHandler {
                 `*立替者:* ${payer}\n` +
                 `*タイプ:* ${type}`
         };
-      } else {
+      }
+
+      return {
+        response_type: 'in_channel',
+        text: `:wastebasket: 行番号 ${rowNumber} の項目を削除しました。`
+      };
+    } catch (error) {
+      if (error instanceof SheetError) {
         return {
-          response_type: 'in_channel',
-          text: `:wastebasket: 行番号 ${rowNumber} の項目を削除しました。`
+          response_type: 'ephemeral',
+          text: `:warning: ${error.message}`
         };
       }
-    } catch (error) {
       console.error('Error deleting entry:', error);
       return {
         response_type: 'ephemeral',
@@ -195,7 +206,7 @@ export class CommandHandler {
 
     const paidTo = otherPayer(paidBy);
     const entry: PaymentEntry = {
-      date: new Date().toISOString().split('T')[0],
+      date: todayInJst(),
       item: `精算（${paidBy}→${paidTo}）`,
       payer: paidTo,
       splitBill: false,
@@ -223,25 +234,28 @@ export class CommandHandler {
   async handlePayAmount(): Promise<SlackResponse> {
     try {
       const data = await this.sheets.getUnsettledAmounts();
-      
+
       if (data.length <= 1) {
         return {
           response_type: 'in_channel',
           text: ':white_check_mark: 未清算金額はありません！'
         };
       }
-      
+
       const amounts = data.slice(1).map(row => {
-        const name = row[0];
-        const amount = parseFloat(row[1]);
+        const name = row[0] || '';
+        const amount = Number(row[1] || 0);
+        if (amount === 0) {
+          return `:white_check_mark: *${name}:* 精算済み (¥0)`;
+        }
         const emoji = amount > 0 ? ':moneybag:' : ':money_with_wings:';
         const prefix = amount > 0 ? '支払' : '受取';
-        return `${emoji} *${name}:* ${prefix} ¥${Math.abs(amount).toLocaleString()}`;
+        return `${emoji} *${name}:* ${prefix} ¥${Math.abs(amount).toLocaleString('ja-JP')}`;
       }).join('\n');
 
       return {
         response_type: 'in_channel',
-        text: ':bank: *未清算金額*\n\n' + amounts + '\n\n_正の値は受け取り、負の値は支払いを示します_'
+        text: ':bank: *未清算金額*\n\n' + amounts + '\n\n_正の値は支払い、負の値は受け取りを示します_'
       };
     } catch (error) {
       console.error('Error getting amounts:', error);

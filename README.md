@@ -75,7 +75,7 @@ npm run deploy
 
 ### 1. 秘密トークンを生成・設定する
 
-土田用・加藤用それぞれ別のランダム文字列を生成し、Cloudflare Worker の Secret として設定します（Git には保存しません）。内部処理には `CHATGPT_ACTION_API_KEY_TSUCHIDA` / `CHATGPT_ACTION_API_KEY_KATO` も必要です。
+土田用・加藤用それぞれ別のランダム文字列を生成し、Cloudflare Worker の Secret として設定します（Git には保存しません）。
 
 ```bash
 # ランダムトークン生成（2回実行して別々の値を使う）
@@ -242,17 +242,20 @@ Authorization: Bearer <CHATGPT_ACTION_API_KEY_TSUCHIDA または CHATGPT_ACTION_
 ├── src/
 │   ├── index.ts              # メインエントリーポイント（ルーティング）
 │   ├── mcp.ts                # Streamable HTTP MCP サーバー（秘密 URL 方式）
-│   ├── api.ts                # JSON API ハンドラー（ChatGPT Actions / MCP 内部利用）
+│   ├── api.ts                # ChatGPT Actions 用 JSON API ハンドラー
+│   ├── payment-service.ts    # API / MCP 共通のビジネスロジック
 │   ├── commands.ts           # Slack コマンドハンドラー
 │   ├── sheets.ts             # Google Sheets API 連携
-│   ├── google-auth.ts        # Google Service Account 認証
+│   ├── google-auth.ts        # Google Service Account 認証（トークンキャッシュ付き）
 │   ├── slack-notifier.ts     # Slack Incoming Webhook 通知
 │   ├── slack-verification.ts # Slack リクエスト署名検証
 │   ├── openapi.ts            # Workers で返却する OpenAPI YAML
 │   ├── privacy.ts            # Privacy Policy HTML
+│   ├── utils.ts              # 共通ユーティリティ（JST 日付・定数時間比較・サニタイズ）
 │   └── types.ts              # TypeScript 型定義
 ├── tests/
-│   └── mcp.test.mjs          # MCP エンドポイントのユニットテスト
+│   ├── mcp.test.mjs          # MCP エンドポイントのテスト
+│   └── app.test.mjs          # API / Slack / Sheets / OpenAPI のテスト
 ├── openapi.yaml              # ChatGPT Actions 用 OpenAPI Schema
 ├── wrangler.toml             # Cloudflare Workers 設定
 ├── tsconfig.json             # TypeScript 設定

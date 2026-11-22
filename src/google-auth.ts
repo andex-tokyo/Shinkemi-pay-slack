@@ -1,15 +1,29 @@
+interface ServiceAccountKey {
+  client_email: string;
+  private_key: string;
+  private_key_id?: string;
+}
+
+interface CachedToken {
+  accessToken: string;
+  tokenExpiry: number;
+}
+
+const tokenCache = new Map<string, CachedToken>();
+
 export class GoogleAuth {
-  private serviceAccountKey: any;
-  private accessToken: string | null = null;
-  private tokenExpiry: number = 0;
+  private serviceAccountKey: ServiceAccountKey;
+  private cacheKey: string;
 
   constructor(serviceAccountKeyJson: string) {
-    this.serviceAccountKey = JSON.parse(serviceAccountKeyJson);
+    this.serviceAccountKey = JSON.parse(serviceAccountKeyJson) as ServiceAccountKey;
+    this.cacheKey = `${this.serviceAccountKey.client_email}:${this.serviceAccountKey.private_key_id || ''}`;
   }
 
   async getAccessToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiry) {
-      return this.accessToken;
+    const cached = tokenCache.get(this.cacheKey);
+    if (cached && Date.now() < cached.tokenExpiry) {
+      return cached.accessToken;
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -24,7 +38,7 @@ export class GoogleAuth {
     };
 
     const jwt = await this.createJWT(payload);
-    
+
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
@@ -41,13 +55,15 @@ export class GoogleAuth {
     }
 
     const data = await response.json() as { access_token: string; expires_in: number };
-    this.accessToken = data.access_token;
-    this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
+    tokenCache.set(this.cacheKey, {
+      accessToken: data.access_token,
+      tokenExpiry: Date.now() + (data.expires_in * 1000) - 60000,
+    });
 
     return data.access_token;
   }
 
-  private async createJWT(payload: any): Promise<string> {
+  private async createJWT(payload: Record<string, string | number>): Promise<string> {
     const header = {
       alg: 'RS256',
       typ: 'JWT',
@@ -58,21 +74,18 @@ export class GoogleAuth {
     const signatureInput = `${encodedHeader}.${encodedPayload}`;
 
     const signature = await this.signRS256(signatureInput, this.serviceAccountKey.private_key);
-    
+
     return `${signatureInput}.${signature}`;
   }
 
   private async signRS256(data: string, privateKey: string): Promise<string> {
-    const pemHeader = '-----BEGIN PRIVATE KEY-----';
-    const pemFooter = '-----END PRIVATE KEY-----';
-    
     const pemContents = privateKey
       .split('\n')
       .filter(line => !line.includes('BEGIN') && !line.includes('END'))
       .join('');
-    
+
     const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-    
+
     const cryptoKey = await crypto.subtle.importKey(
       'pkcs8',
       binaryDer,
@@ -96,14 +109,14 @@ export class GoogleAuth {
 
   private base64urlEncode(data: string | Uint8Array): string {
     let base64: string;
-    
+
     if (typeof data === 'string') {
       base64 = btoa(data);
     } else {
       const binary = String.fromCharCode(...data);
       base64 = btoa(binary);
     }
-    
+
     return base64
       .replace(/\+/g, '-')
       .replace(/\//g, '_')

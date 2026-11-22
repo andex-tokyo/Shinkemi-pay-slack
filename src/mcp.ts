@@ -1,5 +1,7 @@
-import { ApiHandler } from './api';
+import { PaymentService } from './payment-service';
+import { SheetError } from './sheets';
 import { Env, Payer } from './types';
+import { timingSafeEqual } from './utils';
 
 type JsonRpcRequest = {
   jsonrpc?: unknown;
@@ -9,11 +11,6 @@ type JsonRpcRequest = {
 };
 
 type JsonObject = Record<string, unknown>;
-
-type McpActor = {
-  payer: Payer;
-  apiKey: string;
-};
 
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const;
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
@@ -74,18 +71,7 @@ const toolDefinitions = [
   }
 ];
 
-function timingSafeEqual(a: string, b: string): boolean {
-  const bytesA = new TextEncoder().encode(a);
-  const bytesB = new TextEncoder().encode(b);
-  if (bytesA.length !== bytesB.length || bytesA.length === 0) return false;
-  let diff = 0;
-  for (let i = 0; i < bytesA.length; i++) {
-    diff |= bytesA[i] ^ bytesB[i];
-  }
-  return diff === 0;
-}
-
-function secretActorForPath(pathname: string, env: Env): McpActor | null {
+function secretPayerForPath(pathname: string, env: Env): Payer | null {
   if (!pathname.startsWith('/mcp/s/')) return null;
   const token = pathname.slice('/mcp/s/'.length);
   if (!token || token.includes('/')) return null;
@@ -96,11 +82,11 @@ function secretActorForPath(pathname: string, env: Env): McpActor | null {
     return null;
   }
 
-  if (tsuchidaToken && env.CHATGPT_ACTION_API_KEY_TSUCHIDA && timingSafeEqual(token, tsuchidaToken)) {
-    return { payer: '土田', apiKey: env.CHATGPT_ACTION_API_KEY_TSUCHIDA };
+  if (tsuchidaToken && timingSafeEqual(token, tsuchidaToken)) {
+    return '土田';
   }
-  if (katoToken && env.CHATGPT_ACTION_API_KEY_KATO && timingSafeEqual(token, katoToken)) {
-    return { payer: '加藤', apiKey: env.CHATGPT_ACTION_API_KEY_KATO };
+  if (katoToken && timingSafeEqual(token, katoToken)) {
+    return '加藤';
   }
   return null;
 }
@@ -177,34 +163,38 @@ function validateArguments(name: string, args: unknown): string | null {
   return null;
 }
 
-async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionContext, origin: string, actor: McpActor): Promise<JsonObject> {
+async function callTool(name: string, args: unknown, env: Env, ctx: ExecutionContext, payer: Payer): Promise<JsonObject> {
   if (!toolDefinitions.some(tool => tool.name === name)) return toolError('操作が見つかりません。');
   const validation = validateArguments(name, args);
   if (validation) return toolError(validation);
 
   const values = args as JsonObject;
-  const route: Record<string, [string, string]> = {
-    addPayEntry: ['POST', '/api/pay'],
-    addTatekaeEntry: ['POST', '/api/tatekae'],
-    settlePayment: ['POST', '/api/settle'],
-    listPayEntries: ['GET', '/api/list'],
-    deletePayEntry: ['DELETE', `/api/entries/${values.rowNumber}`],
-    getUnsettledAmounts: ['GET', '/api/amount']
-  };
-  const [method, path] = route[name];
-  const internalRequest = new Request(new URL(path, origin), {
-    method,
-    headers: {
-      Authorization: `Bearer ${actor.apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    ...(method === 'POST' ? { body: JSON.stringify(values) } : {})
-  });
-  const response = await new ApiHandler(env, actor.payer, ctx, 'MCPサーバー経由で').handle(internalRequest);
-  const body = await response.json() as JsonObject;
-  if (!response.ok || body.ok !== true) {
-    return toolError(typeof body.error === 'string' ? body.error : '操作の結果を確認できませんでした。');
+  const service = new PaymentService(env, payer, ctx, 'MCPサーバー経由で');
+
+  let body: JsonObject;
+  switch (name) {
+    case 'addPayEntry':
+      body = await service.addEntry(values.item as string, values.amount as number, true);
+      break;
+    case 'addTatekaeEntry':
+      body = await service.addEntry(values.item as string, values.amount as number, false);
+      break;
+    case 'settlePayment':
+      body = await service.settle(values.amount as number);
+      break;
+    case 'listPayEntries':
+      body = await service.listEntries();
+      break;
+    case 'deletePayEntry':
+      body = await service.deleteEntry(values.rowNumber as number);
+      break;
+    case 'getUnsettledAmounts':
+      body = await service.getUnsettledAmounts();
+      break;
+    default:
+      return toolError('操作が見つかりません。');
   }
+
   return {
     content: [{ type: 'text', text: JSON.stringify(body) }],
     structuredContent: body
@@ -217,8 +207,8 @@ export async function handleMcpRequest(request: Request, env: Env, ctx: Executio
   }
 
   const url = new URL(request.url);
-  const actor = secretActorForPath(url.pathname, env);
-  if (!actor) {
+  const payer = secretPayerForPath(url.pathname, env);
+  if (!payer) {
     return json({ error: 'Not Found' }, 404);
   }
 
@@ -243,17 +233,21 @@ export async function handleMcpRequest(request: Request, env: Env, ctx: Executio
       protocolVersion: negotiateProtocolVersion(rpc.params),
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER_INFO,
-      instructions: `${actor.payer}専用の支払い記録。書き込み結果が不明な時は再試行しない。`
+      instructions: `${payer}専用の支払い記録。書き込み結果が不明な時は再試行しない。`
     });
   }
   if (rpc.method === 'ping') return rpcResult(rpc.id, {});
-  if (rpc.method === 'tools/list') return rpcResult(rpc.id, { tools: toolsFor(actor.payer) });
+  if (rpc.method === 'tools/list') return rpcResult(rpc.id, { tools: toolsFor(payer) });
   if (rpc.method === 'tools/call') {
     const params = rpc.params as JsonObject | undefined;
     if (!params || typeof params.name !== 'string') return rpcError(rpc.id, -32602, 'Invalid params');
     try {
-      return rpcResult(rpc.id, await callTool(params.name, params.arguments || {}, env, ctx, url.origin, actor));
-    } catch {
+      return rpcResult(rpc.id, await callTool(params.name, params.arguments || {}, env, ctx, payer));
+    } catch (error) {
+      if (error instanceof SheetError) {
+        return rpcResult(rpc.id, toolError(error.message));
+      }
+      console.error('MCP tool error:', error);
       return rpcResult(rpc.id, toolError('操作の結果を確認できませんでした。自動で再実行しないでください。'));
     }
   }
